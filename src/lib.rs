@@ -1,6 +1,27 @@
 use immutable_map::TreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::collections::VecDeque;
+
+pub fn find_first_plan<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom>(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Option<Vec<(O,A)>> {
+    let mut p = PlannerStep::new(state, tasks, verbose);
+    p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
+    let mut choices = VecDeque::new();
+    while !p.is_complete() {
+        let next_options = p.get_next_step();
+        for option in next_options {
+            choices.push_back(option);
+        }
+        match choices.pop_back() {
+            Some(choice) => {p = choice;},
+            None => {
+                p.verb(format!("** No plan found **"), 0);
+                return None;
+            }
+        }
+    }
+    return Some(p.plan);
+}
 
 pub trait Orderable : Clone + Debug + Ord + Eq {}
 
@@ -36,7 +57,7 @@ struct PlannerStep<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:A
 }
 
 impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom> PlannerStep<S,O,M,T,A> {
-    pub fn new(state: &S, tasks: Vec<Task<O,T,A>>, verbose: usize) -> Self {
+    pub fn new(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
     }
 

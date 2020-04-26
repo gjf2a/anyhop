@@ -1,9 +1,9 @@
 use rust_decimal_macros::*;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
-use crate::{Task, Operator, Method, MethodTag};
+use crate::{Task, Operator, Method, MethodTag, Atom, Orderable};
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 enum CityOperator {
     Walk,
     CallTaxi,
@@ -11,7 +11,9 @@ enum CityOperator {
     Pay
 }
 
-impl <T:Copy+Ord+Eq,L:Copy+Ord+Eq> Operator<TravelState<T,L>,Args<T,L>> for CityOperator {
+impl Atom for CityOperator {}
+
+impl <T:Atom,L:Atom> Operator<TravelState<T,L>,Args<T,L>> for CityOperator {
     fn apply(&self, state: &TravelState<T,L>, args: Args<T,L>) -> Option<TravelState<T,L>> {
         let mut updated = state.clone();
         let success = match self {
@@ -24,13 +26,15 @@ impl <T:Copy+Ord+Eq,L:Copy+Ord+Eq> Operator<TravelState<T,L>,Args<T,L>> for City
     }
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 enum CityMethod {
     TravelByFoot,
     TravelByTaxi
 }
 
-impl <T:Copy+Ord+Eq,L:Copy+Ord+Eq> Method<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethod {
+impl Atom for CityMethod {}
+
+impl <T:Atom,L:Atom> Method<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethod {
     fn apply(&self, args: Args<T,L>) -> Vec<Vec<Task<CityOperator, CityMethodTag,Args<T,L>>>> {
         if let Args::Move(t, _, _) = args {
             match self {
@@ -45,12 +49,14 @@ impl <T:Copy+Ord+Eq,L:Copy+Ord+Eq> Method<TravelState<T,L>,Args<T,L>,CityOperato
     }
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 enum CityMethodTag {
     Travel
 }
 
-impl <T:Copy+Ord+Eq,L:Copy+Ord+Eq> MethodTag<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethodTag {
+impl Atom for CityMethodTag {}
+
+impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethodTag {
     fn candidates(&self) -> Vec<CityMethod> {
         match self {
             CityMethodTag::Travel => vec![CityMethod::TravelByFoot, CityMethod::TravelByTaxi]
@@ -67,17 +73,21 @@ pub struct TravelState<T,L> {
     dist: BTreeMap<L,BTreeMap<L,usize>>
 }
 
-#[derive(Copy,Clone,Debug)]
-pub enum Args<T:Copy+Clone,L:Copy+Clone> {
+impl<T:Atom,L:Atom> Orderable for TravelState<T,L> {}
+
+#[derive(Copy,Clone,Debug,Ord, PartialOrd, Eq, PartialEq)]
+pub enum Args<T:Atom,L:Atom> {
     Move(T, L, L),
     Traveler(T)
 }
+
+impl<T:Atom,L:Atom> Atom for Args<T,L> {}
 
 pub fn fare(dist: usize) -> Decimal {
     dec!(1.5) + dec!(0.5) * Decimal::from(dist)
 }
 
-impl<T: Copy+Ord+Eq, L: Copy+Ord+Eq> TravelState<T,L> {
+impl<T:Atom, L:Atom> TravelState<T,L> {
     pub fn new(dist: BTreeMap<L,BTreeMap<L,usize>>, taxi_stand: L) -> Self {
         TravelState {
             loc: BTreeMap::new(), cash: BTreeMap::new(), owe: BTreeMap::new(),

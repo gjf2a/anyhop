@@ -3,7 +3,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
 
-pub fn find_first_plan<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom>(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Option<Vec<(O,A)>> {
+pub fn find_first_plan<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom>
+(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Option<Vec<(O,A)>> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -130,11 +131,27 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
 
 #[cfg(test)]
 mod tests {
+    use crate::{find_first_plan, Task, Atom};
+    use crate::tests::simple_travel::{TravelState, MapGraph, Args, CityMethodTag};
+    use rust_decimal_macros::*;
+
     mod blocks_operators;
     mod simple_travel;
 
+    #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
+    enum Location {
+        Home, Park, TaxiStand
+    }
+
+    impl Atom for Location {}
+    impl Atom for char {}
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn simple_travel_1() {
+        let mut state = TravelState::new(MapGraph::new(vec![(Location::Home, Location::Park, 8)]), Location::TaxiStand);
+        state.add_traveler('M', dec!(20), Location::Home);
+        let tasks = vec![Task::MethodTag(CityMethodTag::Travel, Args::Move('M', Location::Home, Location::Park))];
+        let plan = find_first_plan(&state, &tasks, 3);
+        println!("the plan: {:?}", plan.unwrap());
     }
 }

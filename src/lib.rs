@@ -132,7 +132,7 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
 #[cfg(test)]
 mod tests {
     use crate::{find_first_plan, Task, Atom};
-    use crate::tests::simple_travel::{TravelState, MapGraph, Args, CityMethodTag};
+    use crate::tests::simple_travel::{TravelState, MapGraph, Args, CityMethodTag, CityOperator};
     use rust_decimal_macros::*;
 
     mod blocks_operators;
@@ -148,10 +148,15 @@ mod tests {
 
     #[test]
     fn simple_travel_1() {
-        let mut state = TravelState::new(MapGraph::new(vec![(Location::Home, Location::Park, 8)]), Location::TaxiStand);
-        state.add_traveler('M', dec!(20), Location::Home);
-        let tasks = vec![Task::MethodTag(CityMethodTag::Travel, Args::Move('M', Location::Home, Location::Park))];
-        let plan = find_first_plan(&state, &tasks, 3);
-        println!("the plan: {:?}", plan.unwrap());
+        use Location::*;
+        use CityOperator::*;
+        use CityMethodTag::*;
+        use Args::*;
+        let mut state = TravelState::new(MapGraph::new(vec![(Home, Park, 8)]), TaxiStand);
+        state.add_traveler('M', dec!(20), Home);
+        let tasks = vec![Task::MethodTag(Travel, Move('M', Home, Park))];
+        let plan = find_first_plan(&state, &tasks, 3).unwrap();
+        println!("the plan: {:?}", &plan);
+        assert_eq!(plan, vec![(CallTaxi, Traveler('M')), (RideTaxi, Move('M', Home, Park)), (Pay, Traveler('M'))]);
     }
 }

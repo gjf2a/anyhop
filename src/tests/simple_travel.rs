@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use crate::{Task, Operator, Method, MethodTag, Atom, Orderable};
 use immutable_map::TreeMap;
 
-#[derive(Clone,Debug,Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct MapGraph<L: Atom> {
     distances: TreeMap<L,TreeMap<L,usize>>
 }

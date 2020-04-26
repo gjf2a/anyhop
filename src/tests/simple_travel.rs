@@ -140,11 +140,9 @@ impl<T:Atom, L:Atom> TravelState<T,L> {
 
     pub fn walk(&mut self, args: Args<T,L>) -> bool {
         if let Args::Move(t, start, end) = args {
-            if let Some(at) = self.loc.get(&t) {
-                if *at == start {
-                    self.loc.insert(t, end);
-                    return true;
-                }
+            if let Some(_) = self.loc.get(&t).filter(|at| **at == start) {
+                self.loc.insert(t, end);
+                return true;
             }
         }
         false

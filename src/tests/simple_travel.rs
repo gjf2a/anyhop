@@ -162,15 +162,13 @@ impl<T:Atom, L:Atom> TravelState<T,L> {
 
     pub fn ride_taxi(&mut self, args: Args<T,L>) -> bool {
         if let Args::Move(t, start, end) = args {
-            if let Some(at) = self.loc.get(&t) {
-                if *at == start && self.taxi == start {
-                    if let Some(dist) = self.get_dist(start, end) {
-                        self.loc.insert(t, end);
-                        self.owe.insert(t, fare(dist));
-                        self.taxi = end;
-                        return true;
-                    }
-                }
+            if let Some(dist) = self.loc.get(&t)
+                .filter(|at| **at == start && self.taxi == start)
+                .and_then(|_| self.get_dist(start, end)) {
+                self.loc.insert(t, end);
+                self.owe.insert(t, fare(dist));
+                self.taxi = end;
+                return true;
             }
         }
         false
@@ -188,14 +186,8 @@ impl<T:Atom, L:Atom> TravelState<T,L> {
     }
 
     pub fn get_remaining_balance(&self, traveler: T) -> Option<Decimal> {
-        if let Some(cash) = self.cash.get(&traveler) {
-            if let Some(owe) = self.owe.get(&traveler) {
-                let diff = cash - owe;
-                if diff >= dec!(0) {
-                    return Some(diff);
-                }
-            }
-        }
-        None
+        self.cash.get(&traveler)
+            .and_then(|cash| self.owe.get(&traveler).map(|owe| cash - owe))
+            .filter(|diff| *diff >= dec!(0))
     }
 }

@@ -1,4 +1,4 @@
-use immutable_map::TreeSet;
+use immutable_map::{TreeSet, TreeMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
@@ -28,15 +28,21 @@ pub trait Orderable : Clone + Debug + Ord + Eq {}
 
 pub trait Atom : Copy + Clone + Debug + Ord + Eq {}
 
-pub trait Operator<S,A:Atom> {
-    fn apply(&self, state: &S, args: A) -> Option<S>;
+pub trait Operator<S:Clone,A:Atom> {
+    fn apply(&self, state: &S, args: A) -> Option<S> {
+        let mut updated = state.clone();
+        let success = self.attempt_update(&mut updated, args);
+        if success {Some(updated)} else {None}
+    }
+
+    fn attempt_update(&self, state: &mut S, args: A) -> bool;
 }
 
-pub trait Method<S,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
+pub trait Method<S:Clone,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
     fn apply(&self, args: A) -> Vec<Vec<Task<O, T, A>>>;
 }
 
-pub trait MethodTag<S,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
+pub trait MethodTag<S:Clone,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
     fn candidates(&self) -> Vec<M>;
 }
 
@@ -44,6 +50,47 @@ pub trait MethodTag<S,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Ato
 pub enum Task<O:Atom, T:Atom, A:Atom> {
     Operator(O, A),
     MethodTag(T, A)
+}
+
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub struct LocationGraph<L: Atom> {
+    distances: TreeMap<L,TreeMap<L,usize>>
+}
+
+impl <L:Atom> LocationGraph<L> {
+    pub fn new(distances: Vec<(L,L,usize)>) -> Self {
+        let mut map_graph = LocationGraph {distances: TreeMap::new()};
+        for distance in distances.iter() {
+            map_graph.add(distance.0, distance.1, distance.2);
+        }
+        map_graph
+    }
+
+    pub fn get(&self, start: L, end: L) -> Option<usize> {
+        self.distances.get(&start)
+            .and_then(|map| map.get(&end))
+            .map(|d| *d)
+    }
+
+    pub fn add(&mut self, m1: L, m2: L, distance: usize) {
+        self.add_one_way(m1, m2, distance);
+        self.add_one_way(m2, m1, distance);
+    }
+
+    fn add_one_way(&mut self, start: L, end: L, distance: usize) {
+        let updated = self.distances.get(&start)
+            .unwrap_or(&TreeMap::new())
+            .insert(end, distance);
+        self.distances = self.distances.insert(start, updated);
+    }
+}
+
+pub fn all_or_none<T:Clone>(options: Vec<Option<T>>) -> Option<Vec<T>> {
+    if options.iter().all(|op| op.is_some()) {
+        Some(options.iter().map(|op| op.as_ref().unwrap().clone()).collect())
+    } else {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -131,11 +178,12 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
 
 #[cfg(test)]
 mod tests {
-    use crate::{find_first_plan, Task, Atom};
-    use crate::tests::simple_travel::{TravelState, MapGraph, Args, CityMethodTag, CityOperator};
+    use crate::{find_first_plan, Task, Atom, LocationGraph};
+    use crate::tests::simple_travel::{TravelState, Args, CityMethodTag, CityOperator};
     use rust_decimal_macros::*;
 
     mod blocks_operators;
+    mod blocks_methods_1;
     mod simple_travel;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -148,11 +196,8 @@ mod tests {
 
     #[test]
     fn simple_travel_1() {
-        use Location::*;
-        use CityOperator::*;
-        use CityMethodTag::*;
-        use Args::*;
-        let mut state = TravelState::new(MapGraph::new(vec![(Home, Park, 8)]), TaxiStand);
+        use Location::*; use CityOperator::*; use CityMethodTag::*; use Args::*;
+        let mut state = TravelState::new(LocationGraph::new(vec![(Home, Park, 8)]), TaxiStand);
         state.add_traveler('M', dec!(20), Home);
         let tasks = vec![Task::MethodTag(Travel, Move('M', Home, Park))];
         let plan = find_first_plan(&state, &tasks, 3).unwrap();

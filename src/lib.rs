@@ -171,10 +171,10 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
 #[cfg(test)]
 mod tests {
     use crate::{find_first_plan, Task, Atom, LocationGraph};
-    use crate::tests::simple_travel::{TravelState, CityMethodTag, CityOperator};
     use rust_decimal_macros::*;
 
     mod simple_travel;
+    mod simple_travel_2;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
     enum Location {
@@ -187,6 +187,22 @@ mod tests {
     #[test]
     fn simple_travel_1() {
         use Location::*; use CityOperator::*; use CityMethodTag::*;
+        use crate::tests::simple_travel::{TravelState, CityMethodTag, CityOperator};
+        let locations = LocationGraph::new(vec![(Home, Park, 8)]);
+        let mut state = TravelState::new(locations, TaxiStand);
+        let mut goal = state.clone();
+        state.add_traveler('M', dec!(20), Home);
+        goal.add_traveler('M', dec!(0), Park);
+        let tasks = vec![Task::MethodTag(Travel('M'))];
+        let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
+        println!("the plan: {:?}", &plan);
+        assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
+    }
+
+    #[test]
+    fn simple_travel_2() {
+        use Location::*; use CityOperator::*; use CityMethodTag::*;
+        use crate::tests::simple_travel_2::{TravelState, CityMethodTag, CityOperator};
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);
         let mut goal = state.clone();

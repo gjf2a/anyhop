@@ -5,11 +5,11 @@ use std::collections::VecDeque;
 
 pub fn find_first_plan<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>>
 (state: &S, goal: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
-    let mut p = PlannerStep::new(state, goal, tasks, verbose);
+    let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
     while !p.is_complete() {
-        let next_options = p.get_next_step();
+        let next_options = p.get_next_step(goal);
         for option in next_options {
             choices.push_back(option);
         }
@@ -89,7 +89,6 @@ impl <L:Atom> LocationGraph<L> {
 struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
     verbose: usize,
     state: S,
-    goal: S,
     prev_states: TreeSet<S>,
     tasks: Vec<Task<O,T>>,
     plan: Vec<O>,
@@ -98,15 +97,15 @@ struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+
 }
 
 impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> PlannerStep<S,O,M,T> {
-    pub fn new(state: &S, goal: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
-        PlannerStep {verbose, state: state.clone(), goal: goal.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
+    pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
+        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
     }
 
     pub fn is_complete(&self) -> bool {
         self.tasks.len() == 0
     }
 
-    pub fn get_next_step(&self) -> Vec<Self> {
+    pub fn get_next_step(&self, goal: &S) -> Vec<Self> {
         self.verb(format!("depth {} tasks {:?}", self.depth, self.tasks), 1);
         if self.is_complete() {
             self.verb(format!("depth {} returns plan {:?}", self.depth, self.plan), 2);
@@ -115,7 +114,7 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
             if let Some(task1) = self.tasks.get(0) {
                 match task1 {
                     Task::Operator(op) => self.apply_operator(*op),
-                    Task::MethodTag(tag) => self.apply_method(*tag)
+                    Task::MethodTag(tag) => self.apply_method(*tag, goal)
                 }
             } else {
                 self.verb(format!("Depth {} returns failure", self.depth), 2);
@@ -136,10 +135,10 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
         vec![]
     }
 
-    fn apply_method(&self, tag: T) -> Vec<Self> {
+    fn apply_method(&self, tag: T, goal: &S) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         for candidate in tag.candidates() {
-            let subtask_alternatives = candidate.apply(&self.state, &self.goal);
+            let subtask_alternatives = candidate.apply(&self.state, goal);
             self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
             for subtasks in subtask_alternatives.iter() {
                 self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 2);
@@ -152,14 +151,14 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
     fn operator_planner_step(&self, state: S, operator: O) -> Self {
         let mut updated_plan = self.plan.clone();
         updated_plan.push(operator);
-        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, goal: self.goal.clone(), tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
+        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
     }
 
     fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), goal: self.goal.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph: PhantomData}
+        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph: PhantomData}
     }
 
     fn verb(&self, text: String, level: usize) {

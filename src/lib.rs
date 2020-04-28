@@ -43,7 +43,7 @@ pub trait Method<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+Method
 }
 
 pub trait MethodTag<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
-    fn candidates(&self) -> Vec<M>;
+    fn candidates(&self, state: &S, goal: &S) -> Vec<M>;
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -137,7 +137,7 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
 
     fn apply_method(&self, tag: T, goal: &S) -> Vec<Self> {
         let mut planner_steps = Vec::new();
-        for candidate in tag.candidates() {
+        for candidate in tag.candidates(&self.state, goal) {
             let subtask_alternatives = candidate.apply(&self.state, goal);
             self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
             for subtasks in subtask_alternatives.iter() {

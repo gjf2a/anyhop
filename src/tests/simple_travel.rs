@@ -26,19 +26,19 @@ impl <T:Atom,L:Atom> Operator<TravelState<T,L>> for CityOperator<T,L> {
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum CityMethod<T:Atom> {
-    TravelByFoot(T),
-    TravelByTaxi(T)
+pub enum CityMethod<T:Atom,L:Atom> {
+    TravelByFoot(T,L,L),
+    TravelByTaxi(T,L,L)
 }
 
-impl <T:Atom> Atom for CityMethod<T> {}
+impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
 
-impl <T:Atom,L:Atom> Method<TravelState<T,L>,CityOperator<T,L>,CityMethod<T>,CityMethodTag<T>> for CityMethod<T> {
+impl <T:Atom,L:Atom> Method<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
     fn apply(&self, state: &TravelState<T,L>, goal: &TravelState<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
         match self {
-            TravelByFoot(t) => vec![vec![Operator(Walk(*t, state.get_location(*t).unwrap(), goal.get_location(*t).unwrap()))]],
-            TravelByTaxi(t) => vec![vec![Operator(CallTaxi(*t)),
+            TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
+            TravelByTaxi(t, start, end) => vec![vec![Operator(CallTaxi(*t)),
                                              Operator(RideTaxi(*t, state.get_location(*t).unwrap(), goal.get_location(*t).unwrap())),
                                              Operator(Pay(*t))]]
         }
@@ -52,12 +52,16 @@ pub enum CityMethodTag<T:Atom> {
 
 impl <T:Atom> Atom for CityMethodTag<T> {}
 
-impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,CityOperator<T,L>,CityMethod<T>,CityMethodTag<T>> for CityMethodTag<T> {
-    fn candidates(&self) -> Vec<CityMethod<T>> {
+impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethodTag<T> {
+    fn candidates(&self, state: &TravelState<T,L>, goal: &TravelState<T,L>) -> Vec<CityMethod<T,L>> {
         match self {
             CityMethodTag::Travel(t) =>
-                vec![CityMethod::TravelByFoot(*t),
-                     CityMethod::TravelByTaxi(*t)]
+                if let (Some(start), Some(end)) = (state.get_location(*t), goal.get_location(*t)) {
+                    vec![CityMethod::TravelByFoot(*t, start, end),
+                         CityMethod::TravelByTaxi(*t, start, end)]
+                } else {
+                    vec![]
+                }
         }
     }
 }

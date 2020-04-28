@@ -100,8 +100,8 @@ fn put<'a, B:Atom>(state: &BlockState<B>, block: B, pos: BlockPos<B>) -> Vec<Vec
     } else {vec![]}
 }
 
-impl <'a, B:Atom> MethodTag<BlockState<B>, BlockOperator<B>, BlockMethod<B>, BlockMethod<B>> for BlockMethod<B> {
-    fn candidates(&self) -> Vec<BlockMethod<B>> {
+impl <B:Atom> MethodTag<BlockState<B>, BlockOperator<B>, BlockMethod<B>, BlockMethod<B>> for BlockMethod<B> {
+    fn candidates(&self, state: &BlockState<B>, goal: &BlockState<B>) -> Vec<BlockMethod<B>> {
         vec![*self]
     }
 }

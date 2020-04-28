@@ -4,66 +4,60 @@ use std::collections::BTreeMap;
 use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, LocationGraph};
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum CityOperator {
-    Walk,
-    CallTaxi,
-    RideTaxi,
-    Pay
+pub enum CityOperator<T:Atom,L:Atom> {
+    Walk(T,L,L),
+    CallTaxi(T),
+    RideTaxi(T,L,L),
+    Pay(T)
 }
 
-impl Atom for CityOperator {}
+impl <T:Atom,L:Atom> Atom for CityOperator<T,L> {}
 
-impl <T:Atom,L:Atom> Operator<TravelState<T,L>,Args<T,L>> for CityOperator {
-    fn attempt_update(&self, updated: &mut TravelState<T, L>, args: Args<T, L>) -> bool {
-        use CityOperator::*; use Args::*;
-        match args {
-            Move(t, start, end) => match self {
-                Walk => updated.walk(t, start, end),
-                RideTaxi => updated.ride_taxi(t, start, end),
-                _ => false
-            },
-            Traveler(t) => match self {
-                CallTaxi => updated.call_taxi(t),
-                Pay => updated.pay_driver(t),
-                _ => false
-            }
+impl <T:Atom,L:Atom> Operator<TravelState<T,L>> for CityOperator<T,L> {
+    fn attempt_update(&self, updated: &mut TravelState<T, L>) -> bool {
+        use CityOperator::*;
+        match self {
+            Walk(t, start, end) => updated.walk(*t, *start, *end),
+            RideTaxi(t, start, end) => updated.ride_taxi(*t, *start, *end),
+            CallTaxi(t) => updated.call_taxi(*t),
+            Pay(t) => updated.pay_driver(*t)
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum CityMethod {
-    TravelByFoot,
-    TravelByTaxi
+pub enum CityMethod<T:Atom,L:Atom> {
+    TravelByFoot(T, L, L),
+    TravelByTaxi(T, L, L)
 }
 
-impl Atom for CityMethod {}
+impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
 
-impl <T:Atom,L:Atom> Method<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethod {
-    fn apply(&self, args: Args<T,L>) -> Vec<Vec<Task<CityOperator, CityMethodTag,Args<T,L>>>> {
+impl <T:Atom,L:Atom> Method<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T,L>> for CityMethod<T,L> {
+    fn apply(&self) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T,L>>>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
-        if let Args::Move(t, _, _) = args {
-            match self {
-                TravelByFoot => vec![vec![Operator(Walk, args)]],
-                TravelByTaxi => vec![vec![Operator(CallTaxi, Args::Traveler(t)),
-                                          Operator(RideTaxi, args),
-                                          Operator(Pay, Args::Traveler(t))]]
-            }
-        } else {vec![]}
+        match self {
+            TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
+            TravelByTaxi(t, start, end) => vec![vec![Operator(CallTaxi(*t)),
+                                                                 Operator(RideTaxi(*t, *start, *end)),
+                                                                 Operator(Pay(*t))]]
+        }
     }
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum CityMethodTag {
-    Travel
+pub enum CityMethodTag<T:Atom,L:Atom> {
+    Travel(T,L,L)
 }
 
-impl Atom for CityMethodTag {}
+impl <T:Atom,L:Atom> Atom for CityMethodTag<T,L> {}
 
-impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,Args<T,L>,CityOperator,CityMethod,CityMethodTag> for CityMethodTag {
-    fn candidates(&self) -> Vec<CityMethod> {
+impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T,L>> for CityMethodTag<T,L> {
+    fn candidates(&self) -> Vec<CityMethod<T,L>> {
         match self {
-            CityMethodTag::Travel => vec![CityMethod::TravelByFoot, CityMethod::TravelByTaxi]
+            CityMethodTag::Travel(t,start,end) =>
+                vec![CityMethod::TravelByFoot(*t, *start, *end),
+                     CityMethod::TravelByTaxi(*t, *start, *end)]
         }
     }
 }
@@ -78,14 +72,6 @@ pub struct TravelState<T,L:Atom> {
 }
 
 impl<T:Atom,L:Atom> Orderable for TravelState<T,L> {}
-
-#[derive(Copy,Clone,Debug,Ord, PartialOrd, Eq, PartialEq)]
-pub enum Args<T:Atom,L:Atom> {
-    Move(T, L, L),
-    Traveler(T)
-}
-
-impl<T:Atom,L:Atom> Atom for Args<T,L> {}
 
 pub fn fare(dist: usize) -> Decimal {
     dec!(1.5) + dec!(0.5) * Decimal::from(dist)

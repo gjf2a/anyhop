@@ -1,22 +1,45 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, BTreeMap};
 use crate::{Atom, Operator};
 
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
 pub struct BlockState<B:Atom> {
-    stacks: BTreeSet<(B,B)>,
+    stacks: BTreeMap<B,B>,
     table: BTreeSet<B>,
     clear: BTreeSet<B>,
     holding: Option<B>
 }
 
+#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq)]
+pub enum BlockPos<B:Atom> {
+    On(B), Table
+}
+
 impl <B:Atom> BlockState<B> {
     pub fn new(blocks: &Vec<B>) -> Self {
-        let mut state = BlockState {stacks: BTreeSet::new(), table: BTreeSet::new(), clear: BTreeSet::new(), holding: None};
+        let mut state = BlockState {stacks: BTreeMap::new(), table: BTreeSet::new(), clear: BTreeSet::new(), holding: None};
         for block in blocks {
             state.table.insert(*block);
             state.clear.insert(*block);
         }
         state
+    }
+
+    pub fn all_blocks(&self) -> Vec<B> {
+        let mut result = Vec::new();
+        self.stacks.iter().map(|entry| result.push(*entry.0));
+        self.table.iter().for_each(|b| result.push(*b));
+        result
+    }
+
+    pub fn get_pos(&self, block: B) -> BlockPos<B> {
+        match self.stacks.get(&block) {
+            Some(on) => BlockPos::On(*on),
+            None => BlockPos::Table
+        }
+    }
+
+    pub fn clear(&self, block: B) -> bool {
+        self.clear.contains(&block)
     }
 
     pub fn pick_up(&mut self, block: B) -> bool {
@@ -38,11 +61,11 @@ impl <B:Atom> BlockState<B> {
     }
 
     pub fn unstack(&mut self, a: B, b: B) -> bool {
-        if self.holding == None && self.stacks.contains(&(a, b)) && self.clear.contains(&a) {
+        if self.holding == None && self.get_pos(a) == BlockPos::On(b) && self.clear.contains(&a) {
             self.holding = Some(a);
             self.clear.insert(b);
             self.clear.remove(&a);
-            self.stacks.remove(&(a, b));
+            self.stacks.remove(&a);
             true
         } else {false}
     }
@@ -52,40 +75,27 @@ impl <B:Atom> BlockState<B> {
             self.holding = None;
             self.clear.remove(&b);
             self.clear.insert(a);
-            self.stacks.insert((a, b));
+            self.stacks.insert(a, b);
             true
         } else {false}
     }
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-enum Args<B:Atom> {
-    One(B), Two(B,B)
+pub enum BlocksOperator<B:Atom> {
+    PickUp(B), PutDown(B), Stack(B,B), Unstack(B,B)
 }
 
-impl <B:Atom> Atom for Args<B> {}
+impl <B:Atom> Atom for BlocksOperator<B> {}
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum BlocksOperator {
-    PickUp, PutDown, Stack, Unstack
-}
-
-impl Atom for BlocksOperator {}
-
-impl <B:Atom> Operator<BlockState<B>,Args<B>> for BlocksOperator {
-    fn attempt_update(&self, state: &mut BlockState<B>, args: Args<B>) -> bool {
-        use BlocksOperator::*; use Args::*;
-        match args {
-            One(block) => match self {
-                PickUp => state.pick_up(block),
-                PutDown => state.put_down(block),
-                _ => false
-            },
-            Two(b1, b2) => match self {
-                Stack => state.stack(b1, b2),
-                Unstack => state.unstack(b1, b2),
-                _ => false
-            }
+impl <B:Atom> Operator<BlockState<B>> for BlocksOperator<B> {
+    fn attempt_update(&self, state: &mut BlockState<B>) -> bool {
+        use BlocksOperator::*;
+        match self {
+            PickUp(block) => state.pick_up(*block),
+            PutDown(block) => state.put_down(*block),
+            Stack(b1, b2) => state.stack(*b1, *b2),
+            Unstack(b1, b2) => state.unstack(*b1, *b2)
         }
     }
 }

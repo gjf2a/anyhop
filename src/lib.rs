@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
 
-pub fn find_first_plan<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom>
-(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Option<Vec<(O,A)>> {
+pub fn find_first_plan<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>>
+(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -28,28 +28,28 @@ pub trait Orderable : Clone + Debug + Ord + Eq {}
 
 pub trait Atom : Copy + Clone + Debug + Ord + Eq {}
 
-pub trait Operator<S:Clone,A:Atom> {
-    fn apply(&self, state: &S, args: A) -> Option<S> {
+pub trait Operator<S:Clone> {
+    fn apply(&self, state: &S) -> Option<S> {
         let mut updated = state.clone();
-        let success = self.attempt_update(&mut updated, args);
+        let success = self.attempt_update(&mut updated);
         if success {Some(updated)} else {None}
     }
 
-    fn attempt_update(&self, state: &mut S, args: A) -> bool;
+    fn attempt_update(&self, state: &mut S) -> bool;
 }
 
-pub trait Method<S:Clone,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
-    fn apply(&self, args: A) -> Vec<Vec<Task<O, T, A>>>;
+pub trait Method<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
+    fn apply(&self) -> Vec<Vec<Task<O, T>>>;
 }
 
-pub trait MethodTag<S:Clone,A:Atom,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>> {
+pub trait MethodTag<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
     fn candidates(&self) -> Vec<M>;
 }
 
 #[derive(Copy,Clone,Debug)]
-pub enum Task<O:Atom, T:Atom, A:Atom> {
-    Operator(O, A),
-    MethodTag(T, A)
+pub enum Task<O:Atom, T:Atom> {
+    Operator(O),
+    MethodTag(T)
 }
 
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -94,18 +94,18 @@ pub fn all_or_none<T:Clone>(options: Vec<Option<T>>) -> Option<Vec<T>> {
 }
 
 #[derive(Clone)]
-struct PlannerStep<S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom> {
+struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
-    tasks: Vec<Task<O,T,A>>,
-    plan: Vec<(O,A)>,
+    tasks: Vec<Task<O,T>>,
+    plan: Vec<O>,
     depth: usize,
     _ph: PhantomData<M>
 }
 
-impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag<S,A,O,M,T>,A:Atom> PlannerStep<S,O,M,T,A> {
-    pub fn new(state: &S, tasks: &Vec<Task<O,T,A>>, verbose: usize) -> Self {
+impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> PlannerStep<S,O,M,T> {
+    pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
     }
 
@@ -121,8 +121,8 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
         } else {
             if let Some(task1) = self.tasks.get(0) {
                 match task1 {
-                    Task::Operator(op, args) => self.apply_operator(*op, *args),
-                    Task::MethodTag(tag, args) => self.apply_method(*tag, *args)
+                    Task::Operator(op) => self.apply_operator(*op),
+                    Task::MethodTag(tag) => self.apply_method(*tag)
                 }
             } else {
                 self.verb(format!("Depth {} returns failure", self.depth), 2);
@@ -131,22 +131,22 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
         }
     }
 
-    fn apply_operator(&self, operator: O, args: A) -> Vec<Self> {
-        if let Some(new_state) = operator.apply(&self.state, args) {
+    fn apply_operator(&self, operator: O) -> Vec<Self> {
+        if let Some(new_state) = operator.apply(&self.state) {
             if self.prev_states.contains(&new_state) {
                 self.verb(format!("Cycle; pruning..."), 2);
             } else {
                 self.verb(format!("Depth {}; new_state: {:?}", self.depth, new_state), 2);
-                return vec![self.operator_planner_step(new_state, operator, args)];
+                return vec![self.operator_planner_step(new_state, operator)];
             }
         }
         vec![]
     }
 
-    fn apply_method(&self, tag: T, args: A) -> Vec<Self> {
+    fn apply_method(&self, tag: T) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         for candidate in tag.candidates() {
-            let subtask_alternatives = candidate.apply(args);
+            let subtask_alternatives = candidate.apply();
             self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
             for subtasks in subtask_alternatives.iter() {
                 self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 2);
@@ -156,13 +156,13 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
         planner_steps
     }
 
-    fn operator_planner_step(&self, state: S, operator: O, args: A) -> Self {
+    fn operator_planner_step(&self, state: S, operator: O) -> Self {
         let mut updated_plan = self.plan.clone();
-        updated_plan.push((operator, args));
+        updated_plan.push(operator);
         PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
     }
 
-    fn method_planner_step(&self, subtasks: &Vec<Task<O,T,A>>) -> Self {
+    fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
@@ -179,11 +179,11 @@ impl <S:Orderable,O:Atom+Operator<S,A>,M:Atom+Method<S,A,O,M,T>,T:Atom+MethodTag
 #[cfg(test)]
 mod tests {
     use crate::{find_first_plan, Task, Atom, LocationGraph};
-    use crate::tests::simple_travel::{TravelState, Args, CityMethodTag, CityOperator};
+    use crate::tests::simple_travel::{TravelState, CityMethodTag, CityOperator};
     use rust_decimal_macros::*;
 
     mod blocks_operators;
-    mod blocks_methods_1;
+    mod blocks_methods;
     mod simple_travel;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -196,12 +196,12 @@ mod tests {
 
     #[test]
     fn simple_travel_1() {
-        use Location::*; use CityOperator::*; use CityMethodTag::*; use Args::*;
+        use Location::*; use CityOperator::*; use CityMethodTag::*;
         let mut state = TravelState::new(LocationGraph::new(vec![(Home, Park, 8)]), TaxiStand);
         state.add_traveler('M', dec!(20), Home);
-        let tasks = vec![Task::MethodTag(Travel, Move('M', Home, Park))];
+        let tasks = vec![Task::MethodTag(Travel('M', Home, Park))];
         let plan = find_first_plan(&state, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);
-        assert_eq!(plan, vec![(CallTaxi, Traveler('M')), (RideTaxi, Move('M', Home, Park)), (Pay, Traveler('M'))]);
+        assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
     }
 }

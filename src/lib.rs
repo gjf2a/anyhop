@@ -174,8 +174,6 @@ mod tests {
     use crate::tests::simple_travel::{TravelState, CityMethodTag, CityOperator};
     use rust_decimal_macros::*;
 
-    mod blocks_operators;
-    mod blocks_methods;
     mod simple_travel;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]

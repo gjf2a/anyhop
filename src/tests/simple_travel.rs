@@ -34,12 +34,12 @@ pub enum CityMethod<T:Atom,L:Atom> {
 impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
 
 impl <T:Atom,L:Atom> Method<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
-    fn apply(&self, state: &TravelState<T,L>, goal: &TravelState<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
+    fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelState<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
         match self {
             TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
             TravelByTaxi(t, start, end) => vec![vec![Operator(CallTaxi(*t)),
-                                             Operator(RideTaxi(*t, state.get_location(*t).unwrap(), goal.get_location(*t).unwrap())),
+                                             Operator(RideTaxi(*t, *start, *end)),
                                              Operator(Pay(*t))]]
         }
     }

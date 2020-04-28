@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, BTreeMap};
 use crate::{Atom, Operator};
 
-#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
+#[derive(Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
 pub struct BlockState<B:Atom> {
     stacks: BTreeMap<B,B>,
     table: BTreeSet<B>,
@@ -9,7 +9,7 @@ pub struct BlockState<B:Atom> {
     holding: Option<B>
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq)]
+#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
 pub enum BlockPos<B:Atom> {
     On(B), Table
 }
@@ -36,6 +36,10 @@ impl <B:Atom> BlockState<B> {
             Some(on) => BlockPos::On(*on),
             None => BlockPos::Table
         }
+    }
+
+    pub fn get_holding(&self) -> Option<B> {
+        self.holding
     }
 
     pub fn clear(&self, block: B) -> bool {
@@ -82,15 +86,15 @@ impl <B:Atom> BlockState<B> {
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum BlocksOperator<B:Atom> {
+pub enum BlockOperator<B:Atom> {
     PickUp(B), PutDown(B), Stack(B,B), Unstack(B,B)
 }
 
-impl <B:Atom> Atom for BlocksOperator<B> {}
+impl <B:Atom> Atom for BlockOperator<B> {}
 
-impl <B:Atom> Operator<BlockState<B>> for BlocksOperator<B> {
+impl <B:Atom> Operator<BlockState<B>> for BlockOperator<B> {
     fn attempt_update(&self, state: &mut BlockState<B>) -> bool {
-        use BlocksOperator::*;
+        use BlockOperator::*;
         match self {
             PickUp(block) => state.pick_up(*block),
             PutDown(block) => state.put_down(*block),

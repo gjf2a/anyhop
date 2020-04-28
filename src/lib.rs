@@ -4,8 +4,8 @@ use std::marker::PhantomData;
 use std::collections::VecDeque;
 
 pub fn find_first_plan<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>>
-(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
-    let mut p = PlannerStep::new(state, tasks, verbose);
+(state: &S, goal: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
+    let mut p = PlannerStep::new(state, goal, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
     while !p.is_complete() {
@@ -39,7 +39,7 @@ pub trait Operator<S:Clone> {
 }
 
 pub trait Method<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
-    fn apply(&self) -> Vec<Vec<Task<O, T>>>;
+    fn apply(&self, state: &S, goal: &S) -> Vec<Vec<Task<O, T>>>;
 }
 
 pub trait MethodTag<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
@@ -85,18 +85,11 @@ impl <L:Atom> LocationGraph<L> {
     }
 }
 
-pub fn all_or_none<T:Clone>(options: Vec<Option<T>>) -> Option<Vec<T>> {
-    if options.iter().all(|op| op.is_some()) {
-        Some(options.iter().map(|op| op.as_ref().unwrap().clone()).collect())
-    } else {
-        None
-    }
-}
-
 #[derive(Clone)]
 struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
     verbose: usize,
     state: S,
+    goal: S,
     prev_states: TreeSet<S>,
     tasks: Vec<Task<O,T>>,
     plan: Vec<O>,
@@ -105,8 +98,8 @@ struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+
 }
 
 impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> PlannerStep<S,O,M,T> {
-    pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
-        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
+    pub fn new(state: &S, goal: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
+        PlannerStep {verbose, state: state.clone(), goal: goal.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
     }
 
     pub fn is_complete(&self) -> bool {
@@ -146,7 +139,7 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
     fn apply_method(&self, tag: T) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         for candidate in tag.candidates() {
-            let subtask_alternatives = candidate.apply();
+            let subtask_alternatives = candidate.apply(&self.state, &self.goal);
             self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
             for subtasks in subtask_alternatives.iter() {
                 self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 2);
@@ -159,14 +152,14 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
     fn operator_planner_step(&self, state: S, operator: O) -> Self {
         let mut updated_plan = self.plan.clone();
         updated_plan.push(operator);
-        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
+        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, goal: self.goal.clone(), tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
     }
 
     fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph: PhantomData}
+        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), goal: self.goal.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph: PhantomData}
     }
 
     fn verb(&self, text: String, level: usize) {
@@ -197,10 +190,13 @@ mod tests {
     #[test]
     fn simple_travel_1() {
         use Location::*; use CityOperator::*; use CityMethodTag::*;
-        let mut state = TravelState::new(LocationGraph::new(vec![(Home, Park, 8)]), TaxiStand);
+        let locations = LocationGraph::new(vec![(Home, Park, 8)]);
+        let mut state = TravelState::new(locations, TaxiStand);
+        let mut goal = state.clone();
         state.add_traveler('M', dec!(20), Home);
-        let tasks = vec![Task::MethodTag(Travel('M', Home, Park))];
-        let plan = find_first_plan(&state, &tasks, 3).unwrap();
+        goal.add_traveler('M', dec!(0), Park);
+        let tasks = vec![Task::MethodTag(Travel('M'))];
+        let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);
         assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
     }

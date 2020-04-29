@@ -3,25 +3,27 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
 
-pub fn find_first_plan<S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>>
-(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
+pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
     while !p.is_complete() {
-        let next_options = p.get_next_step(goal);
-        for option in next_options {
+        for option in p.get_next_step(goal) {
             choices.push_back(option);
         }
         match choices.pop_back() {
             Some(choice) => {p = choice;},
             None => {
+                println!("p complete? {:?} tasks? {:?}", p.is_complete(), p.tasks);
                 p.verb(format!("** No plan found **"), 0);
                 return None;
             }
         }
     }
-    return Some(p.plan);
+    Some(p.plan)
 }
 
 pub trait Orderable : Clone + Debug + Ord + Eq {}
@@ -86,7 +88,10 @@ impl <L:Atom> LocationGraph<L> {
 }
 
 #[derive(Clone)]
-struct PlannerStep<S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
+struct PlannerStep<S,G,O,M,T>
+where S:Orderable, G:Clone, O:Atom+Operator<S>,
+      M:Atom+Method<S,G,O,M,T>,
+      T:Atom+MethodTag<S,G,O,M,T> {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
@@ -97,7 +102,10 @@ struct PlannerStep<S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,
     _ph_g: PhantomData<G>
 }
 
-impl <S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> PlannerStep<S,G,O,M,T> {
+impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T> {
     pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph_m: PhantomData, _ph_g: PhantomData }
     }
@@ -159,6 +167,7 @@ impl <S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+Met
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
+        println!("updated tasks: {:?}", updated_tasks);
         PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData}
     }
 

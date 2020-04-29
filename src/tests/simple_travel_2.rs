@@ -139,8 +139,8 @@ pub enum CityMethod<T:Atom,L:Atom> {
 
 impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
 
-impl <T:Atom,L:Atom> Method<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
-    fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelState<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
+impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
+    fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelGoal<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
         match self {
             TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
@@ -158,11 +158,11 @@ pub enum CityMethodTag<T:Atom> {
 
 impl <T:Atom> Atom for CityMethodTag<T> {}
 
-impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethodTag<T> {
-    fn candidates(&self, state: &TravelState<T,L>, goal: &TravelState<T,L>) -> Vec<CityMethod<T,L>> {
+impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethodTag<T> {
+    fn candidates(&self, state: &TravelState<T,L>, goal: &TravelGoal<T,L>) -> Vec<CityMethod<T,L>> {
         match self {
             CityMethodTag::Travel(t) =>
-                if let (Some(start), Some(end)) = (state.get_location(*t), goal.get_location(*t)) {
+                if let (Some(start), Some(end)) = (state.get_location(*t), goal.goal_for(*t)) {
                     vec![CityMethod::TravelByFoot(*t, start, end),
                          CityMethod::TravelByTaxi(*t, start, end)]
                 } else {
@@ -172,3 +172,21 @@ impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,CityOperator<T,L>,CityMethod<T,L
     }
 }
 
+#[derive(Clone,Debug)]
+pub struct TravelGoal<T:Atom,L:Atom> {
+    goals: BTreeMap<T,L>
+}
+
+impl <T:Atom,L:Atom> TravelGoal<T,L> {
+    pub fn new(goals: Vec<(T,L)>) -> Self {
+        let mut result = TravelGoal {goals: BTreeMap::new()};
+        for (traveler, goal) in goals {
+            result.goals.insert(traveler, goal);
+        }
+        result
+    }
+
+    pub fn goal_for(&self, traveler: T) -> Option<L> {
+        self.goals.get(&traveler).map(|g| *g)
+    }
+}

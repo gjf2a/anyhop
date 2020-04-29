@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
 
-pub fn find_first_plan<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>>
-(state: &S, goal: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
+pub fn find_first_plan<S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>>
+(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -38,12 +38,12 @@ pub trait Operator<S:Clone> {
     fn attempt_update(&self, state: &mut S) -> bool;
 }
 
-pub trait Method<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
-    fn apply(&self, state: &S, goal: &S) -> Vec<Vec<Task<O, T>>>;
+pub trait Method<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
+    fn apply(&self, state: &S, goal: &G) -> Vec<Vec<Task<O, T>>>;
 }
 
-pub trait MethodTag<S:Clone,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
-    fn candidates(&self, state: &S, goal: &S) -> Vec<M>;
+pub trait MethodTag<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
+    fn candidates(&self, state: &S, goal: &G) -> Vec<M>;
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -86,26 +86,27 @@ impl <L:Atom> LocationGraph<L> {
 }
 
 #[derive(Clone)]
-struct PlannerStep<S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> {
+struct PlannerStep<S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
     tasks: Vec<Task<O,T>>,
     plan: Vec<O>,
     depth: usize,
-    _ph: PhantomData<M>
+    _ph_m: PhantomData<M>,
+    _ph_g: PhantomData<G>
 }
 
-impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O,M,T>> PlannerStep<S,O,M,T> {
+impl <S:Orderable,G:Clone,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> PlannerStep<S,G,O,M,T> {
     pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
-        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph: PhantomData }
+        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph_m: PhantomData, _ph_g: PhantomData }
     }
 
     pub fn is_complete(&self) -> bool {
         self.tasks.len() == 0
     }
 
-    pub fn get_next_step(&self, goal: &S) -> Vec<Self> {
+    pub fn get_next_step(&self, goal: &G) -> Vec<Self> {
         self.verb(format!("depth {} tasks {:?}", self.depth, self.tasks), 1);
         if self.is_complete() {
             self.verb(format!("depth {} returns plan {:?}", self.depth, self.plan), 2);
@@ -135,7 +136,7 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
         vec![]
     }
 
-    fn apply_method(&self, tag: T, goal: &S) -> Vec<Self> {
+    fn apply_method(&self, tag: T, goal: &G) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         for candidate in tag.candidates(&self.state, goal) {
             let subtask_alternatives = candidate.apply(&self.state, goal);
@@ -151,14 +152,14 @@ impl <S:Orderable,O:Atom+Operator<S>,M:Atom+Method<S,O,M,T>,T:Atom+MethodTag<S,O
     fn operator_planner_step(&self, state: S, operator: O) -> Self {
         let mut updated_plan = self.plan.clone();
         updated_plan.push(operator);
-        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph: PhantomData }
+        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData }
     }
 
     fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph: PhantomData}
+        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData}
     }
 
     fn verb(&self, text: String, level: usize) {
@@ -186,13 +187,12 @@ mod tests {
 
     #[test]
     fn simple_travel_1() {
+        use crate::tests::simple_travel::{TravelState, TravelGoal, CityMethodTag, CityOperator};
         use Location::*; use CityOperator::*; use CityMethodTag::*;
-        use crate::tests::simple_travel::{TravelState, CityMethodTag, CityOperator};
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);
-        let mut goal = state.clone();
         state.add_traveler('M', dec!(20), Home);
-        goal.add_traveler('M', dec!(0), Park);
+        let goal = TravelGoal::new(vec![('M', Park)]);
         let tasks = vec![Task::MethodTag(Travel('M'))];
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);
@@ -201,13 +201,12 @@ mod tests {
 
     #[test]
     fn simple_travel_2() {
+        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityMethodTag, CityOperator};
         use Location::*; use CityOperator::*; use CityMethodTag::*;
-        use crate::tests::simple_travel_2::{TravelState, CityMethodTag, CityOperator};
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);
-        let mut goal = state.clone();
         state.add_traveler('M', dec!(20), Home);
-        goal.add_traveler('M', dec!(0), Park);
+        let goal = TravelGoal::new(vec![('M', Park)]);
         let tasks = vec![Task::MethodTag(Travel('M'))];
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);

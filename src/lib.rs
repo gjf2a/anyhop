@@ -167,7 +167,6 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        println!("updated tasks: {:?}", updated_tasks);
         PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData}
     }
 

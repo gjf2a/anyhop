@@ -1,7 +1,9 @@
-use immutable_map::{TreeSet, TreeMap};
+use immutable_map::TreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
+
+mod locations;
 
 pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Clone, O:Atom+Operator<S>,
@@ -52,39 +54,6 @@ pub trait MethodTag<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom
 pub enum Task<O:Atom, T:Atom> {
     Operator(O),
     MethodTag(T)
-}
-
-#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct LocationGraph<L: Atom> {
-    distances: TreeMap<L,TreeMap<L,usize>>
-}
-
-impl <L:Atom> LocationGraph<L> {
-    pub fn new(distances: Vec<(L,L,usize)>) -> Self {
-        let mut map_graph = LocationGraph {distances: TreeMap::new()};
-        for distance in distances.iter() {
-            map_graph.add(distance.0, distance.1, distance.2);
-        }
-        map_graph
-    }
-
-    pub fn get(&self, start: L, end: L) -> Option<usize> {
-        self.distances.get(&start)
-            .and_then(|map| map.get(&end))
-            .map(|d| *d)
-    }
-
-    pub fn add(&mut self, m1: L, m2: L, distance: usize) {
-        self.add_one_way(m1, m2, distance);
-        self.add_one_way(m2, m1, distance);
-    }
-
-    fn add_one_way(&mut self, start: L, end: L, distance: usize) {
-        let updated = self.distances.get(&start)
-            .unwrap_or(&TreeMap::new())
-            .insert(end, distance);
-        self.distances = self.distances.insert(start, updated);
-    }
 }
 
 #[derive(Clone)]
@@ -179,8 +148,9 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
 
 #[cfg(test)]
 mod tests {
-    use crate::{find_first_plan, Task, Atom, LocationGraph};
+    use crate::{find_first_plan, Task, Atom};
     use rust_decimal_macros::*;
+    use crate::locations::LocationGraph;
 
     mod simple_travel;
     mod simple_travel_2;

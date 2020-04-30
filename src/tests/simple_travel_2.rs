@@ -5,9 +5,10 @@
 // It is a bit longer but perhaps more clear.
 
 use rust_decimal_macros::*;
-use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, LocationGraph};
+use crate::{Task, Operator, Method, MethodTag, Atom, Orderable};
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
+use crate::locations::LocationGraph;
 
 // It is this struct that diverges from the original simple_travel.
 // Specifically, instead of separate dictionaries for each aspect

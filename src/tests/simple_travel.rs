@@ -1,7 +1,7 @@
 use rust_decimal_macros::*;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
-use crate::{Task, Operator, Method, MethodTag, Atom, Orderable};
+use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult};
 use crate::locations::LocationGraph;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -35,14 +35,15 @@ pub enum CityMethod<T:Atom,L:Atom> {
 impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
 
 impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
-    fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelGoal<T,L>) -> Vec<Vec<Task<CityOperator<T,L>, CityMethodTag<T>>>> {
+    fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelGoal<T,L>)
+        -> MethodResult<CityOperator<T,L>, CityMethodTag<T>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
-        match self {
+        MethodResult::TaskLists(match self {
             TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
             TravelByTaxi(t, start, end) => vec![vec![Operator(CallTaxi(*t)),
                                              Operator(RideTaxi(*t, *start, *end)),
                                              Operator(Pay(*t))]]
-        }
+        })
     }
 }
 

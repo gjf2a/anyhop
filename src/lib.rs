@@ -42,8 +42,14 @@ pub trait Operator<S:Clone> {
     fn attempt_update(&self, state: &mut S) -> bool;
 }
 
+pub enum MethodResult<O:Atom,T:Atom> {
+    PlanFound,
+    TaskLists(Vec<Vec<Task<O,T>>>),
+    Failure
+}
+
 pub trait Method<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
-    fn apply(&self, state: &S, goal: &G) -> Vec<Vec<Task<O, T>>>;
+    fn apply(&self, state: &S, goal: &G) -> MethodResult<O, T>;
 }
 
 pub trait MethodTag<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
@@ -116,11 +122,16 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
     fn apply_method(&self, tag: T, goal: &G) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         for candidate in tag.candidates(&self.state, goal) {
-            let subtask_alternatives = candidate.apply(&self.state, goal);
-            self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
-            for subtasks in subtask_alternatives.iter() {
-                self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 2);
-                planner_steps.push(self.method_planner_step(subtasks));
+            match candidate.apply(&self.state, goal) {
+                MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
+                MethodResult::Failure => {self.verb(format!("No plan found by method {:?}", candidate), 2);},
+                MethodResult::TaskLists(subtask_alternatives) => {
+                    self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 2);
+                    for subtasks in subtask_alternatives.iter() {
+                        self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 2);
+                        planner_steps.push(self.method_planner_step(subtasks));
+                    }
+                }
             }
         }
         planner_steps

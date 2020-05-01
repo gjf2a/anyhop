@@ -2,6 +2,8 @@ use immutable_map::TreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
+use std::time::Instant;
+use num_traits::Num;
 
 mod locations;
 
@@ -10,7 +12,7 @@ pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, v
           M:Atom+Method<S,G,O,M,T>,
           T:Atom+MethodTag<S,G,O,M,T> {
     let mut p = PlannerStep::new(state, tasks, verbose);
-    p.verb(format!("** pyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
+    p.verb(format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
     while !p.is_complete() {
         for option in p.get_next_step(goal) {
@@ -19,13 +21,148 @@ pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, v
         match choices.pop_back() {
             Some(choice) => {p = choice;},
             None => {
-                println!("p complete? {:?} tasks? {:?}", p.is_complete(), p.tasks);
                 p.verb(format!("** No plan found **"), 0);
                 return None;
             }
         }
     }
     Some(p.plan)
+}
+
+#[derive(Debug,Copy,Clone,Eq,PartialEq)]
+pub enum BacktrackPreference {
+    MostRecent, LeastRecent
+}
+
+#[derive(Debug,Copy,Clone,Eq,PartialEq)]
+pub enum BacktrackStrategy {
+    Steady(BacktrackPreference),
+    Alternate(BacktrackPreference)
+}
+
+impl BacktrackStrategy {
+    pub fn next(self) -> Self {
+        use BacktrackStrategy::*; use BacktrackPreference::*;
+        match self {
+            Steady(_) => self,
+            Alternate(p) => match p {
+                LeastRecent => Alternate(MostRecent),
+                MostRecent => Alternate(LeastRecent)
+            }
+        }
+    }
+
+    pub fn pref(&self) -> BacktrackPreference {
+        match self {
+            BacktrackStrategy::Steady(p) => *p,
+            BacktrackStrategy::Alternate(p) => *p
+        }
+    }
+}
+
+// See https://doc.rust-lang.org/1.0.0/style/ownership/builders.html
+// Do this later; I can always make AnytimePlanner::new() private
+// to mandate the Builder.
+/*
+pub struct AnytimePlannerBuilder<S,G,O,M,T>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T> {
+
+}
+*/
+
+pub struct AnytimePlanner<S,G,O,M,T,C>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T>,
+          C:Num+PartialOrd+Copy+Debug {
+    plans: Vec<Vec<O>>,
+    discovery_times: Vec<u128>,
+    costs: Vec<C>,
+    cheapest: Option<C>,
+    total_iterations: usize,
+    total_pops: usize,
+    total_pushes: usize,
+    total_pruned: usize,
+    start_time: Instant,
+    current_step: PlannerStep<S,G,O,M,T>
+}
+
+impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T>,
+          C:Num+PartialOrd+Copy+Debug {
+    pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+        let mut outcome = AnytimePlanner {
+            plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
+            total_iterations: 0, total_pops: 0, total_pushes:0, total_pruned: 0, start_time: Instant::now(),
+            current_step: PlannerStep::new(state, tasks, verbose)};
+        let mut choices = VecDeque::new();
+        let mut next_search_info = (false, strategy);
+        loop {
+            outcome.total_iterations += 1;
+            if !apply_cutoff || outcome.cheapest.map_or(true, |bound| cost_func(&outcome.current_step.plan) < bound) {
+                next_search_info = outcome.add_choices(goal, next_search_info.1, &mut choices, cost_func);
+            } else {outcome.total_pruned += 1;}
+            if choices.is_empty() {
+                outcome.current_step.verb(format!("** No plans left to be found **"), 0);
+                break;
+            } else if outcome.time_up(time_limit_ms) {
+                outcome.current_step.verb(format!("Time's up! {:?} ms elapsed", time_limit_ms), 0);
+                break;
+            } else {
+                outcome.pick_choice(next_search_info, &mut choices);
+            }
+        }
+        outcome
+    }
+
+    fn time_up(&self, time_limit_ms: Option<u128>) -> bool {
+        match time_limit_ms {
+            None => false,
+            Some(limit) => {
+                let elapsed = Instant::now().duration_since(self.start_time);
+                elapsed.as_millis() >= limit
+            }
+        }
+    }
+
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,G,O,M,T>>, cost_func: &F) -> (bool,BacktrackStrategy) {
+        if self.current_step.is_complete() {
+            let plan = self.current_step.plan.clone();
+            let cost: C = cost_func(&plan);
+            self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
+            self.add_plan(self.current_step.plan.clone(), cost);
+            (true, strategy.next())
+        } else {
+            for option in self.current_step.get_next_step(&goal) {
+                choices.push_back(option);
+                self.total_pushes += 1;
+            }
+            (false, strategy)
+        }
+    }
+
+    fn add_plan(&mut self, plan: Vec<O>, cost: C) {
+        self.costs.push(cost);
+        self.discovery_times.push(Instant::now().duration_since(self.start_time).as_millis());
+        self.plans.push(plan);
+    }
+
+    fn pick_choice(&mut self, next_search_info: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,G,O,M,T>>) {
+        self.current_step = if next_search_info.0 && next_search_info.1.pref() == BacktrackPreference::LeastRecent {
+            choices.pop_front()
+        } else {
+            choices.pop_back()
+        }.unwrap();
+        self.total_pops += 1;
+    }
+
+    pub fn report(&self) -> String {
+        format!("costs: {:?}\ntimes: {:?}\niterations: {}\npushes: {}\npops: {}\npruned: {}\n", self.costs, self.discovery_times, self.total_iterations, self.total_pushes, self.total_pops, self.total_pruned)
+    }
 }
 
 pub trait Orderable : Clone + Debug + Ord + Eq {}

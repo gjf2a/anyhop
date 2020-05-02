@@ -115,27 +115,31 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
             start_time: Instant::now(),
             current_step: PlannerStep::new(state, tasks, verbose)
         };
+        outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
+        outcome
+    }
+
+    fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, apply_cutoff: bool) {
         let mut choices = VecDeque::new();
         let mut backtrack = (false, strategy);
         loop {
-            outcome.total_iterations += 1;
-            backtrack = if apply_cutoff && outcome.current_too_expensive(cost_func) {
-                outcome.total_pruned += 1;
+            self.total_iterations += 1;
+            backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {
+                self.total_pruned += 1;
                 (true, backtrack.1.next())
             } else {
-                outcome.add_choices(goal, backtrack.1, &mut choices, cost_func)
+                self.add_choices(goal, backtrack.1, &mut choices, cost_func)
             };
             if choices.is_empty() {
-                outcome.current_step.verb(format!("** No plans left to be found **"), 0);
+                self.current_step.verb(format!("** No plans left to be found **"), 0);
                 break;
-            } else if outcome.time_up(time_limit_ms) {
-                outcome.current_step.verb(format!("Time's up! {:?} ms elapsed", time_limit_ms), 0);
+            } else if self.time_up(time_limit_ms) {
+                self.current_step.verb(format!("Time's up! {:?} ms elapsed", time_limit_ms), 0);
                 break;
             } else {
-                outcome.pick_choice(backtrack, &mut choices);
+                self.pick_choice(backtrack, &mut choices);
             }
         }
-        outcome
     }
 
     fn current_too_expensive<F:Fn(&Vec<O>) -> C>(&self, cost_func: F) -> bool {

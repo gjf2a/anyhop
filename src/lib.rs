@@ -76,9 +76,13 @@ pub struct AnytimePlanner<S,G,O,M,T,C>
     where S:Orderable, G:Clone, O:Atom+Operator<S>,
           M:Atom+Method<S,G,O,M,T>,
           T:Atom+MethodTag<S,G,O,M,T>,
-          C:Num+PartialOrd+Copy+Debug {
+          C:Num+Ord+PartialOrd+Copy+Debug {
     plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
+    discovery_pushes: Vec<usize>,
+    discovery_pops: Vec<usize>,
+    discovery_iterations: Vec<usize>,
+    discovery_prunes: Vec<usize>,
     costs: Vec<C>,
     cheapest: Option<C>,
     total_iterations: usize,
@@ -93,19 +97,23 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
     where S:Orderable, G:Clone, O:Atom+Operator<S>,
           M:Atom+Method<S,G,O,M,T>,
           T:Atom+MethodTag<S,G,O,M,T>,
-          C:Num+PartialOrd+Copy+Debug {
+          C:Num+Ord+PartialOrd+Copy+Debug {
     pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
+            discovery_iterations: Vec::new(), discovery_pushes: Vec::new(),
+            discovery_pops: Vec::new(), discovery_prunes: Vec::new(),
             total_iterations: 0, total_pops: 0, total_pushes:0, total_pruned: 0, start_time: Instant::now(),
             current_step: PlannerStep::new(state, tasks, verbose)};
         let mut choices = VecDeque::new();
         let mut next_search_info = (false, strategy);
         loop {
             outcome.total_iterations += 1;
-            if !apply_cutoff || outcome.cheapest.map_or(true, |bound| cost_func(&outcome.current_step.plan) < bound) {
+            if apply_cutoff && outcome.current_too_expensive(cost_func) {
+                outcome.total_pruned += 1;
+            } else {
                 next_search_info = outcome.add_choices(goal, next_search_info.1, &mut choices, cost_func);
-            } else {outcome.total_pruned += 1;}
+            }
             if choices.is_empty() {
                 outcome.current_step.verb(format!("** No plans left to be found **"), 0);
                 break;
@@ -117,6 +125,10 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
             }
         }
         outcome
+    }
+
+    fn current_too_expensive<F:Fn(&Vec<O>) -> C>(&self, cost_func: F) -> bool {
+        self.cheapest.map_or(false, |bound| cost_func(&self.current_step.plan) >= bound)
     }
 
     fn time_up(&self, time_limit_ms: Option<u128>) -> bool {
@@ -148,6 +160,10 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
     fn add_plan(&mut self, plan: Vec<O>, cost: C) {
         self.costs.push(cost);
         self.discovery_times.push(Instant::now().duration_since(self.start_time).as_millis());
+        self.discovery_iterations.push(self.total_iterations);
+        self.discovery_pushes.push(self.total_pushes);
+        self.discovery_pops.push(self.total_pops);
+        self.discovery_prunes.push(self.total_pruned);
         self.plans.push(plan);
     }
 
@@ -161,7 +177,13 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
     }
 
     pub fn report(&self) -> String {
-        format!("costs: {:?}\ntimes: {:?}\niterations: {}\npushes: {}\npops: {}\npruned: {}\n", self.costs, self.discovery_times, self.total_iterations, self.total_pushes, self.total_pops, self.total_pruned)
+        let c = self.index_of_cheapest();
+        format!("costs: {:?} ({:?})\ntimes: {} ({:?})\niterations: {} ({:?})\npushes: {} ({:?})\npops: {} ({:?})\npruned: {} ({:?})\n", self.costs.iter().min().unwrap(), &self.costs[0..c+1], self.discovery_times.last().unwrap(), &self.discovery_times[0..c+1], self.total_iterations, &self.discovery_iterations[0..c+1], self.total_pushes, &self.discovery_pushes[0..c+1], self.total_pops, &self.discovery_pops[0..c+1], self.total_pruned, &self.discovery_prunes[0..c+1])
+    }
+
+    pub fn index_of_cheapest(&self) -> usize {
+        (0..self.costs.len())
+            .fold(0, |best, i| if self.costs[i] < self.costs[best] {i} else {best})
     }
 }
 

@@ -178,7 +178,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
 
     pub fn report(&self) -> String {
         let c = self.index_of_cheapest();
-        format!("costs: {:?} ({:?})\ntimes: {} ({:?})\niterations: {} ({:?})\npushes: {} ({:?})\npops: {} ({:?})\npruned: {} ({:?})\n", self.costs.iter().min().unwrap(), &self.costs[0..c+1], self.discovery_times.last().unwrap(), &self.discovery_times[0..c+1], self.total_iterations, &self.discovery_iterations[0..c+1], self.total_pushes, &self.discovery_pushes[0..c+1], self.total_pops, &self.discovery_pops[0..c+1], self.total_pruned, &self.discovery_prunes[0..c+1])
+        format!("{} plans\ncosts: {:?} ({:?})\ntimes: {} ({:?})\niterations: {} ({:?})\npushes: {} ({:?})\npops: {} ({:?})\npruned: {} ({:?})\n", self.plans.len(), self.costs.iter().min().unwrap(), &self.costs[0..c+1], self.discovery_times.last().unwrap(), &self.discovery_times[0..c+1], self.total_iterations, &self.discovery_iterations[0..c+1], self.total_pushes, &self.discovery_pushes[0..c+1], self.total_pops, &self.discovery_pops[0..c+1], self.total_pruned, &self.discovery_prunes[0..c+1])
     }
 
     pub fn index_of_cheapest(&self) -> usize {

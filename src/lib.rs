@@ -98,7 +98,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
           M:Atom+Method<S,G,O,M,T>,
           T:Atom+MethodTag<S,G,O,M,T>,
           C:Num+Ord+PartialOrd+Copy+Debug {
-    pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+    pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(),
             discovery_times: Vec::new(),
@@ -113,7 +113,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
             total_pushes: 0,
             total_pruned: 0,
             start_time: Instant::now(),
-            current_step: PlannerStep::new(state, tasks, verbose)
+            current_step: PlannerStep::new(state, &T::starting_tasks(&state, &goal), verbose)
         };
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
         outcome

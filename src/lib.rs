@@ -7,10 +7,16 @@ use num_traits::Num;
 
 mod locations;
 
+// Did not work. Was worth a try. May try again.
+// Interesting discussion: https://users.rust-lang.org/t/how-to-create-a-macro-to-impl-a-provided-type-parametrized-trait/5289
+// Also read this: https://danielkeep.github.io/tlborm/book/README.html
+// macro_rules! num {() => {Num+Ord+PartialOrd+Copy+Debug}}
+// macro_rules! num {($t:ident) => {$t:Num+Ord+PartialOrd+Copy+Debug}}
+
 pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T> {
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -60,22 +66,39 @@ impl BacktrackStrategy {
     }
 }
 
+/*
 // See https://doc.rust-lang.org/1.0.0/style/ownership/builders.html
 // Do this later; I can always make AnytimePlanner::new() private
 // to mandate the Builder.
-/*
-pub struct AnytimePlannerBuilder<S,G,O,M,T>
+//
+// I started work on this, and I got frustrated that any default for the cost
+// function overly constrains the parameterized type C.
+//
+pub struct AnytimePlannerBuilder<'a,S,G,O,M,T,C>
     where S:Orderable, G:Clone, O:Atom+Operator<S>,
           M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T> {
+          T:Atom+MethodTag<S,G,O,M,T>,
+          C:Num+Ord+PartialOrd+Copy+Debug,
+          F:Fn(&Vec<O>) -> C {
+    state: S, goals: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &'a F, verbose: usize, apply_cutoff: bool
+}
 
+impl <'a,S,G,O,M,T,C> AnytimePlannerBuilder<'a,S,G,O,M,T,C>
+    where S:Orderable, G:Clone, O:Atom+Operator<S>,
+          M:Atom+Method<S,G,O,M,T>,
+          T:Atom+MethodTag<S,G,O,M,T>,
+          C:Num+Ord+PartialOrd+Copy+Debug,
+          F:Fn(&Vec<O>) -> C {
+    pub fn new(state: &S, goal: &G) -> Self {
+        AnytimePlannerBuilder {  }
+    }
 }
 */
 
 pub struct AnytimePlanner<S,G,O,M,T,C>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T>,
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T>,
           C:Num+Ord+PartialOrd+Copy+Debug {
     plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
@@ -94,9 +117,9 @@ pub struct AnytimePlanner<S,G,O,M,T,C>
 }
 
 impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T>,
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T>,
           C:Num+Ord+PartialOrd+Copy+Debug {
     pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
@@ -113,7 +136,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
             total_pushes: 0,
             total_pruned: 0,
             start_time: Instant::now(),
-            current_step: PlannerStep::new(state, &T::starting_tasks(&state, &goal), verbose)
+            current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
         outcome
@@ -206,7 +229,7 @@ pub trait Orderable : Clone + Debug + Ord + Eq {}
 
 pub trait Atom : Copy + Clone + Debug + Ord + Eq {}
 
-pub trait Operator<S:Clone> {
+pub trait Operator<S:Clone> : Atom {
     fn apply(&self, state: &S) -> Option<S> {
         let mut updated = state.clone();
         let success = self.attempt_update(&mut updated);
@@ -222,13 +245,16 @@ pub enum MethodResult<O:Atom,T:Atom> {
     Failure
 }
 
-pub trait Method<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
+pub trait Method<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Atom {
     fn apply(&self, state: &S, goal: &G) -> MethodResult<O, T>;
 }
 
-pub trait MethodTag<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
+pub trait MethodTag<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Atom {
     fn candidates(&self, state: &S, goal: &G) -> Vec<M>;
-    fn starting_tasks(state: &S, goal: &G) -> Vec<Task<O,T>>;
+}
+
+pub trait Goal<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Clone {
+    fn starting_tasks(&self) -> Vec<Task<O,T>>;
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -239,7 +265,7 @@ pub enum Task<O:Atom, T:Atom> {
 
 #[derive(Clone)]
 struct PlannerStep<S,G,O,M,T>
-where S:Orderable, G:Clone, O:Atom+Operator<S>,
+where S:Orderable, G:Goal<S,G,O,M,T>, O:Atom+Operator<S>,
       M:Atom+Method<S,G,O,M,T>,
       T:Atom+MethodTag<S,G,O,M,T> {
     verbose: usize,
@@ -253,9 +279,9 @@ where S:Orderable, G:Clone, O:Atom+Operator<S>,
 }
 
 impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T> {
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T> {
     pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph_m: PhantomData, _ph_g: PhantomData }
     }
@@ -365,8 +391,7 @@ mod tests {
 
     #[test]
     fn simple_travel_2() {
-        use crate::tests::simple_travel::TravelGoal;
-        use crate::tests::simple_travel_2::{TravelState, CityMethodTag, CityOperator};
+        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityMethodTag, CityOperator};
         use Location::*; use CityOperator::*; use CityMethodTag::*;
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);

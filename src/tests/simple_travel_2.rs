@@ -5,11 +5,10 @@
 // It is a bit longer but perhaps more clear.
 
 use rust_decimal_macros::*;
-use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult};
+use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult, Goal};
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use crate::locations::LocationGraph;
-use crate::tests::simple_travel::TravelGoal;
 
 // It is this struct that diverges from the original simple_travel.
 // Specifically, instead of separate dictionaries for each aspect
@@ -173,8 +172,33 @@ impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L
                 }
         }
     }
+}
 
-    fn starting_tasks(_: &TravelState<T, L>, goal: &TravelGoal<T, L>) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
-        goal.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
+#[derive(Clone,Debug)]
+pub struct TravelGoal<T:Atom,L:Atom> {
+    goals: BTreeMap<T,L>
+}
+
+impl <T:Atom,L:Atom> Goal<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for TravelGoal<T,L> {
+    fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
+        self.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
+    }
+}
+
+impl <T:Atom,L:Atom> TravelGoal<T,L> {
+    pub fn new(goals: Vec<(T,L)>) -> Self {
+        let mut result = TravelGoal {goals: BTreeMap::new()};
+        for (traveler, goal) in goals {
+            result.goals.insert(traveler, goal);
+        }
+        result
+    }
+
+    pub fn goal_for(&self, traveler: T) -> Option<L> {
+        self.goals.get(&traveler).map(|g| *g)
+    }
+
+    pub fn all_travelers(&self) -> Vec<T> {
+        self.goals.iter().map(|g| *g.0).collect()
     }
 }

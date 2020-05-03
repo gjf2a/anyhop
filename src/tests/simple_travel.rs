@@ -1,7 +1,7 @@
 use rust_decimal_macros::*;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
-use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult};
+use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult, Goal};
 use crate::locations::LocationGraph;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -65,10 +65,6 @@ impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L
                     vec![]
                 }
         }
-    }
-
-    fn starting_tasks(_: &TravelState<T, L>, goal: &TravelGoal<T, L>) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
-        goal.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
     }
 }
 
@@ -153,6 +149,12 @@ impl<T:Atom, L:Atom> TravelState<T,L> {
 #[derive(Clone,Debug)]
 pub struct TravelGoal<T:Atom,L:Atom> {
     goals: BTreeMap<T,L>
+}
+
+impl <T:Atom,L:Atom> Goal<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for TravelGoal<T,L> {
+    fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
+        self.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
+    }
 }
 
 impl <T:Atom,L:Atom> TravelGoal<T,L> {

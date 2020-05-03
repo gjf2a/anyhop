@@ -228,6 +228,7 @@ pub trait Method<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+Me
 
 pub trait MethodTag<S:Clone,G,O:Atom+Operator<S>,M:Atom+Method<S,G,O,M,T>,T:Atom+MethodTag<S,G,O,M,T>> {
     fn candidates(&self, state: &S, goal: &G) -> Vec<M>;
+    fn starting_tasks(state: &S, goal: &G) -> Vec<Task<O,T>>;
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -364,7 +365,8 @@ mod tests {
 
     #[test]
     fn simple_travel_2() {
-        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityMethodTag, CityOperator};
+        use crate::tests::simple_travel::TravelGoal;
+        use crate::tests::simple_travel_2::{TravelState, CityMethodTag, CityOperator};
         use Location::*; use CityOperator::*; use CityMethodTag::*;
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);

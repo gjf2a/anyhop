@@ -66,6 +66,10 @@ impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L
                 }
         }
     }
+
+    fn starting_tasks(_: &TravelState<T, L>, goal: &TravelGoal<T, L>) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
+        goal.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
+    }
 }
 
 #[derive(Clone,PartialOrd,Ord,PartialEq,Eq,Debug)]
@@ -162,5 +166,9 @@ impl <T:Atom,L:Atom> TravelGoal<T,L> {
 
     pub fn goal_for(&self, traveler: T) -> Option<L> {
         self.goals.get(&traveler).map(|g| *g)
+    }
+
+    pub fn all_travelers(&self) -> Vec<T> {
+        self.goals.iter().map(|g| *g.0).collect()
     }
 }

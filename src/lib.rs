@@ -5,8 +5,6 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
 
-mod locations;
-
 // Did not work. Was worth a try. May try again.
 // Interesting discussion: https://users.rust-lang.org/t/how-to-create-a-macro-to-impl-a-provided-type-parametrized-trait/5289
 // Also read this: https://danielkeep.github.io/tlborm/book/README.html
@@ -387,7 +385,7 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
 mod tests {
     use crate::{find_first_plan, Task, Atom};
     use rust_decimal_macros::*;
-    use crate::locations::LocationGraph;
+    use locations::LocationGraph;
 
     mod simple_travel;
     mod simple_travel_2;

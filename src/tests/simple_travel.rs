@@ -2,7 +2,7 @@ use rust_decimal_macros::*;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult, Goal};
-use crate::locations::LocationGraph;
+use locations::LocationGraph;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum CityOperator<T:Atom,L:Atom> {

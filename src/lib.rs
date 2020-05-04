@@ -74,23 +74,29 @@ impl BacktrackStrategy {
 // I started work on this, and I got frustrated that any default for the cost
 // function overly constrains the parameterized type C.
 //
-pub struct AnytimePlannerBuilder<'a,S,G,O,M,T,C>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T>,
+// See https://stackoverflow.com/questions/32053402/why-am-i-getting-parameter-is-never-used-e0392
+// to deal better with the generic types.
+pub struct AnytimePlannerBuilder<'a,S,G,O,M,T,C,F>
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T>,
           C:Num+Ord+PartialOrd+Copy+Debug,
           F:Fn(&Vec<O>) -> C {
-    state: S, goals: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &'a F, verbose: usize, apply_cutoff: bool
+    state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &'a F,
+    verbose: usize, apply_cutoff: bool
 }
 
-impl <'a,S,G,O,M,T,C> AnytimePlannerBuilder<'a,S,G,O,M,T,C>
-    where S:Orderable, G:Clone, O:Atom+Operator<S>,
-          M:Atom+Method<S,G,O,M,T>,
-          T:Atom+MethodTag<S,G,O,M,T>,
+impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,O,M,T,C,F>
+    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
+          M:Method<S,G,O,M,T>,
+          T:MethodTag<S,G,O,M,T>,
           C:Num+Ord+PartialOrd+Copy+Debug,
           F:Fn(&Vec<O>) -> C {
-    pub fn new(state: &S, goal: &G) -> Self {
-        AnytimePlannerBuilder {  }
+    pub fn new(state: &S, goal: &G, cost_func: &F) -> Self {
+        AnytimePlannerBuilder { state, goal, time_limit_ms: None,
+            strategy: BacktrackStrategy::Steady(BacktrackPreference::MostRecent),
+            cost_func, verbose: 0, apply_cutoff: true
+        }
     }
 }
 */
@@ -113,7 +119,13 @@ pub struct AnytimePlanner<S,G,O,M,T,C>
     total_pushes: usize,
     total_pruned: usize,
     start_time: Instant,
+    total_time: Option<u128>,
     current_step: PlannerStep<S,G,O,M,T>
+}
+
+
+pub fn summary_csv_header() -> String {
+    format!("label,cheapest,discovery_time,discovery_iteration,discovery_push,discovery_pop,pruned_prior,total_time,total_iterations,total_attempts\n")
 }
 
 impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
@@ -123,19 +135,11 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
           C:Num+Ord+PartialOrd+Copy+Debug {
     pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
-            plans: Vec::new(),
-            discovery_times: Vec::new(),
-            cheapest: None,
-            costs: Vec::new(),
-            discovery_iterations: Vec::new(),
-            discovery_pushes: Vec::new(),
-            discovery_pops: Vec::new(),
-            discovery_prunes: Vec::new(),
-            total_iterations: 0,
-            total_pops: 0,
-            total_pushes: 0,
-            total_pruned: 0,
-            start_time: Instant::now(),
+            plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
+            discovery_iterations: Vec::new(), discovery_pushes: Vec::new(),
+            discovery_pops: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
+            total_pops: 0, total_pushes: 0, total_pruned: 0, start_time: Instant::now(),
+            total_time: None,
             current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
@@ -154,7 +158,9 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
                 self.add_choices(goal, backtrack.1, &mut choices, cost_func)
             };
             if choices.is_empty() {
-                self.current_step.verb(format!("** No plans left to be found **"), 0);
+                self.total_time = Some(Instant::now().duration_since(self.start_time).as_millis());
+                self.current_step.verb(format!("** No plans left to be found ({} ms elapsed) **", self.total_time.unwrap()), 0);
+                self.current_step.verb(format!("{} attempts, {} found, {} pruned", self.plans.len() + self.total_pruned, self.plans.len(), self.total_pruned), 0);
                 break;
             } else if self.time_up(time_limit_ms) {
                 self.current_step.verb(format!("Time's up! {:?} ms elapsed", time_limit_ms), 0);
@@ -197,12 +203,14 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
 
     fn add_plan(&mut self, plan: Vec<O>, cost: C) {
         self.costs.push(cost);
-        self.discovery_times.push(Instant::now().duration_since(self.start_time).as_millis());
+        let time = Instant::now().duration_since(self.start_time).as_millis();
+        self.discovery_times.push(time);
         self.discovery_iterations.push(self.total_iterations);
         self.discovery_pushes.push(self.total_pushes);
         self.discovery_pops.push(self.total_pops);
         self.discovery_prunes.push(self.total_pruned);
         self.plans.push(plan);
+        self.current_step.verb(format!("Plan found. Cost: {:?}; Time: {}", cost, time), 0);
     }
 
     fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,G,O,M,T>>) {
@@ -214,14 +222,31 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
         self.total_pops += 1;
     }
 
-    pub fn report(&self) -> String {
-        let c = self.index_of_cheapest();
-        format!("{} plans\ncosts: {:?} ({:?})\ntimes: {} ({:?})\niterations: {} ({:?})\npushes: {} ({:?})\npops: {} ({:?})\npruned: {} ({:?})\n", self.plans.len(), self.costs.iter().min().unwrap(), &self.costs[0..c+1], self.discovery_times.last().unwrap(), &self.discovery_times[0..c+1], self.total_iterations, &self.discovery_iterations[0..c+1], self.total_pushes, &self.discovery_pushes[0..c+1], self.total_pops, &self.discovery_pops[0..c+1], self.total_pruned, &self.discovery_prunes[0..c+1])
-    }
-
     pub fn index_of_cheapest(&self) -> usize {
         (0..self.costs.len())
             .fold(0, |best, i| if self.costs[i] < self.costs[best] {i} else {best})
+    }
+
+    pub fn report(&self) -> String {
+        let c = self.index_of_cheapest();
+        format!("{} plans\ncosts: {:?} ({:?})\ntimes: {} ({:?})\niterations: {} ({:?})\npushes: {} ({:?})\npops: {} ({:?})\npruned: {} ({:?})\n",
+                self.plans.len(), self.lowest_cost(), &self.costs[0..c+1], self.discovery_times.last().unwrap(), &self.discovery_times[0..c+1], self.total_iterations, &self.discovery_iterations[0..c+1], self.total_pushes, &self.discovery_pushes[0..c+1], self.total_pops, &self.discovery_pops[0..c+1], self.total_pruned, &self.discovery_prunes[0..c+1])
+    }
+
+    pub fn summary_csv_row(&self, label: &str) -> String {
+        format!("{},{:?},{},{},{},{},{},{},{},{}\n", label, self.lowest_cost(), self.discovery_times.last().unwrap(), self.discovery_iterations.last().unwrap(), self.discovery_pushes.last().unwrap(), self.discovery_pops.last().unwrap(), self.discovery_prunes.last().unwrap(), self.total_time.unwrap(), self.total_iterations, self.total_pruned + self.plans.len())
+    }
+
+    pub fn instance_csv(&self) -> String {
+        let mut result = String::from("plan_cost,discovery_time,discovery_iteration,discovery_push,discovery_pop,pruned_prior\n");
+        for p in 0..self.index_of_cheapest() {
+            result.push_str(format!("{:?},{},{},{},{},{}\n", self.costs[p], self.discovery_times[p], self.discovery_iterations[p], self.discovery_pushes[p], self.discovery_pops[p], self.discovery_prunes[p]).as_str());
+        }
+        result
+    }
+
+    pub fn lowest_cost(&self) -> C {
+        *self.costs.iter().min().unwrap()
     }
 }
 

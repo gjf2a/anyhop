@@ -7,12 +7,6 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
 
-// Did not work. Was worth a try. May try again.
-// Interesting discussion: https://users.rust-lang.org/t/how-to-create-a-macro-to-impl-a-provided-type-parametrized-trait/5289
-// Also read this: https://danielkeep.github.io/tlborm/book/README.html
-// macro_rules! num {() => {Num+Ord+PartialOrd+Copy+Debug}}
-// macro_rules! num {($t:ident) => {$t:Num+Ord+PartialOrd+Copy+Debug}}
-
 pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
           M:Method<S,G,O,M,T>,

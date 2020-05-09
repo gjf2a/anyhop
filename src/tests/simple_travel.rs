@@ -1,7 +1,7 @@
 use rust_decimal_macros::*;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
-use crate::{Task, Operator, Method, MethodTag, Atom, Orderable, MethodResult, Goal};
+use crate::{Task, Operator, Method, MethodTag, Atom, MethodResult, Goal};
 use locations::LocationGraph;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -11,8 +11,6 @@ pub enum CityOperator<T:Atom,L:Atom> {
     RideTaxi(T,L,L),
     Pay(T)
 }
-
-impl <T:Atom,L:Atom> Atom for CityOperator<T,L> {}
 
 impl <T:Atom,L:Atom> Operator<TravelState<T,L>> for CityOperator<T,L> {
     fn attempt_update(&self, updated: &mut TravelState<T, L>) -> bool {
@@ -32,8 +30,6 @@ pub enum CityMethod<T:Atom,L:Atom> {
     TravelByTaxi(T,L,L)
 }
 
-impl <T:Atom,L:Atom> Atom for CityMethod<T,L> {}
-
 impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
     fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelGoal<T,L>)
         -> MethodResult<CityOperator<T,L>, CityMethodTag<T>> {
@@ -51,8 +47,6 @@ impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,C
 pub enum CityMethodTag<T:Atom> {
     Travel(T)
 }
-
-impl <T:Atom> Atom for CityMethodTag<T> {}
 
 impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethodTag<T> {
     fn candidates(&self, state: &TravelState<T,L>, goal: &TravelGoal<T,L>) -> Vec<CityMethod<T,L>> {
@@ -76,8 +70,6 @@ pub struct TravelState<T,L:Atom> {
     taxi: L,
     dist: LocationGraph<L>
 }
-
-impl<T:Atom,L:Atom> Orderable for TravelState<T,L> {}
 
 pub fn fare(dist: usize) -> Decimal {
     dec!(1.5) + dec!(0.5) * Decimal::from(dist)

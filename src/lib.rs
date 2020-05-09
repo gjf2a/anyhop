@@ -1,3 +1,5 @@
+#![feature(trait_alias)]
+
 use immutable_map::TreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -120,7 +122,7 @@ pub struct AnytimePlanner<S,G,O,M,T,C>
 }
 
 pub fn summary_csv_header() -> String {
-    format!("label,first,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
+    format!("label,first,most_expensive,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
 }
 
 impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
@@ -235,9 +237,9 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
     pub fn summary_csv_row(&self, label: &str) -> String {
         let c = self.index_of_cheapest();
         let (discovery_time, pruned_prior, plans_prior, attempt) = self.plan_data(c);
-        format!("{},{:?},{:?},{},{},{},{},{},{}\n", label, self.costs[0], self.lowest_cost(),
-                discovery_time,  self.total_time.unwrap(), pruned_prior, plans_prior,
-                attempt, self.total_pruned + self.plans.len())
+        format!("{},{:?},{:?},{:?},{},{},{},{},{},{}\n", label, self.costs[0], self.highest_cost(),
+                self.lowest_cost(), discovery_time,  self.total_time.unwrap(), pruned_prior,
+                plans_prior, attempt, self.total_pruned + self.plans.len())
     }
 
     pub fn instance_csv(&self) -> String {
@@ -254,11 +256,15 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
     pub fn lowest_cost(&self) -> C {
         *self.costs.iter().min().unwrap()
     }
+
+    pub fn highest_cost(&self) -> C {
+        *self.costs.iter().max().unwrap()
+    }
 }
 
-pub trait Orderable : Clone + Debug + Ord + Eq {}
+pub trait Orderable = Clone + Debug + Ord + Eq;
 
-pub trait Atom : Copy + Clone + Debug + Ord + Eq {}
+pub trait Atom = Copy + Clone + Debug + Ord + Eq;
 
 pub trait Operator<S:Clone> : Atom {
     fn apply(&self, state: &S) -> Option<S> {
@@ -402,9 +408,6 @@ mod tests {
     enum Location {
         Home, Park, TaxiStand
     }
-
-    impl Atom for Location {}
-    impl Atom for char {}
 
     #[test]
     fn simple_travel_1() {

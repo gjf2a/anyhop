@@ -12,7 +12,9 @@ pub enum CityOperator<T:Atom,L:Atom> {
     Pay(T)
 }
 
-impl <T:Atom,L:Atom> Operator<TravelState<T,L>> for CityOperator<T,L> {
+impl <T:Atom,L:Atom> Operator for CityOperator<T,L> {
+    type S = TravelState<T,L>;
+
     fn attempt_update(&self, updated: &mut TravelState<T, L>) -> bool {
         use CityOperator::*;
         match self {
@@ -30,9 +32,14 @@ pub enum CityMethod<T:Atom,L:Atom> {
     TravelByTaxi(T,L,L)
 }
 
-impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethod<T,L> {
+impl <T:Atom,L:Atom> Method for CityMethod<T,L> {
+    type S = TravelState<T,L>;
+    type G = TravelGoal<T,L>;
+    type O = CityOperator<T,L>;
+    type T = CityMethodTag<T,L>;
+
     fn apply(&self, _state: &TravelState<T,L>, _goal: &TravelGoal<T,L>)
-        -> MethodResult<CityOperator<T,L>, CityMethodTag<T>> {
+        -> MethodResult<CityOperator<T,L>, CityMethodTag<T,L>> {
         use CityOperator::*; use CityMethod::*; use Task::*;
         MethodResult::TaskLists(match self {
             TravelByFoot(t, start, end) => vec![vec![Operator(Walk(*t, *start, *end))]],
@@ -44,17 +51,21 @@ impl <T:Atom,L:Atom> Method<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,C
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum CityMethodTag<T:Atom> {
-    Travel(T)
+pub enum CityMethodTag<T:Atom,L:Atom> {
+    Travel(T,L)
 }
 
-impl <T:Atom,L:Atom> MethodTag<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for CityMethodTag<T> {
+impl <T:Atom,L:Atom> MethodTag for CityMethodTag<T,L> {
+    type S = TravelState<T,L>;
+    type G = TravelGoal<T,L>;
+    type M = CityMethod<T,L>;
+
     fn candidates(&self, state: &TravelState<T,L>, goal: &TravelGoal<T,L>) -> Vec<CityMethod<T,L>> {
         match self {
-            CityMethodTag::Travel(t) =>
-                if let (Some(start), Some(end)) = (state.get_location(*t), goal.goal_for(*t)) {
-                    vec![CityMethod::TravelByFoot(*t, start, end),
-                         CityMethod::TravelByTaxi(*t, start, end)]
+            CityMethodTag::Travel(t, destination) =>
+                if let Some(start) = state.get_location(*t) {
+                    vec![CityMethod::TravelByFoot(*t, start, *destination),
+                         CityMethod::TravelByTaxi(*t, start, *destination)]
                 } else {
                     vec![]
                 }
@@ -143,9 +154,14 @@ pub struct TravelGoal<T:Atom,L:Atom> {
     goals: BTreeMap<T,L>
 }
 
-impl <T:Atom,L:Atom> Goal<TravelState<T,L>,TravelGoal<T,L>,CityOperator<T,L>,CityMethod<T,L>,CityMethodTag<T>> for TravelGoal<T,L> {
-    fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T>>> {
-        self.all_travelers().iter().map(|t| Task::MethodTag(CityMethodTag::Travel(*t))).collect()
+impl <T:Atom,L:Atom> Goal for TravelGoal<T,L> {
+    type O = CityOperator<T,L>;
+    type T = CityMethodTag<T,L>;
+
+    fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethodTag<T,L>>> {
+        self.goals.iter()
+            .map(|(t, goal)| Task::MethodTag(CityMethodTag::Travel(*t, *goal)))
+            .collect()
     }
 }
 

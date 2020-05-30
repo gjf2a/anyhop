@@ -2,15 +2,12 @@
 
 use immutable_map::TreeSet;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
 
-pub fn find_first_plan<S,G,O,M,T>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T> {
+pub fn find_first_plan<S,G,O,T,M>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
+    where S:Orderable, G:Goal<T=T,O=O>, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>, M:Method<S=S,G=G,O=O,T=T> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -95,10 +92,9 @@ impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,O,M,T,C,F>
 }
 */
 
-pub struct AnytimePlanner<S,G,O,M,T,C>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T>,
+pub struct AnytimePlanner<S,O,T,C>
+    where S:Orderable, O:Operator,
+          T:MethodTag,
           C:Num+Ord+PartialOrd+Copy+Debug {
     plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
@@ -112,18 +108,19 @@ pub struct AnytimePlanner<S,G,O,M,T,C>
     total_pruned: usize,
     start_time: Instant,
     total_time: Option<u128>,
-    current_step: PlannerStep<S,G,O,M,T>
+    current_step: PlannerStep<S,O,T>
 }
 
 pub fn summary_csv_header() -> String {
     format!("label,first,most_expensive,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
 }
 
-impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T>,
-          C:Num+Ord+PartialOrd+Copy+Debug {
+impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
+    where S:Orderable, O:Operator<S=S>,
+          T:MethodTag<S=S,G=G,M=M>,
+          C:Num+Ord+PartialOrd+Copy+Debug,
+          G:Goal<T=T,O=O>,
+          M:Method<S=S,G=G,O=O,T=T> {
     pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
@@ -183,7 +180,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,G,O,M,T>>, cost_func: &F) -> (bool,BacktrackStrategy) {
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,O,T>>, cost_func: &F) -> (bool,BacktrackStrategy) {
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
@@ -191,7 +188,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
             self.add_plan(self.current_step.plan.clone(), cost);
             (true, strategy.next())
         } else {
-            for option in self.current_step.get_next_step(&goal) {
+            for option in self.current_step.get_next_step(goal) {
                 choices.push_back(option);
                 self.total_pushes += 1;
             }
@@ -209,7 +206,7 @@ impl <S,G,O,M,T,C> AnytimePlanner<S,G,O,M,T,C>
         self.current_step.verb(format!("Plan found. Cost: {:?}; Time: {}", cost, time), 0);
     }
 
-    fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,G,O,M,T>>) {
+    fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,T>>) {
         self.current_step = if backtrack.0 && backtrack.1.pref() == BacktrackPreference::LeastRecent {
             choices.pop_front()
         } else {
@@ -260,14 +257,16 @@ pub trait Orderable = Clone + Debug + Ord + Eq;
 
 pub trait Atom = Copy + Clone + Debug + Ord + Eq;
 
-pub trait Operator<S:Clone> : Atom {
-    fn apply(&self, state: &S) -> Option<S> {
+pub trait Operator : Atom {
+    type S:Clone;
+
+    fn apply(&self, state: &Self::S) -> Option<Self::S> {
         let mut updated = state.clone();
         let success = self.attempt_update(&mut updated);
         if success {Some(updated)} else {None}
     }
 
-    fn attempt_update(&self, state: &mut S) -> bool;
+    fn attempt_update(&self, state: &mut Self::S) -> bool;
 }
 
 pub enum MethodResult<O:Atom,T:Atom> {
@@ -276,16 +275,25 @@ pub enum MethodResult<O:Atom,T:Atom> {
     Failure
 }
 
-pub trait Method<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Atom {
-    fn apply(&self, state: &S, goal: &G) -> MethodResult<O, T>;
+pub trait Method : Atom {
+    type S;
+    type G;
+    type O: Atom;
+    type T: Atom;
+    fn apply(&self, state: &Self::S, goal: &Self::G) -> MethodResult<Self::O, Self::T>;
 }
 
-pub trait MethodTag<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Atom {
-    fn candidates(&self, state: &S, goal: &G) -> Vec<M>;
+pub trait MethodTag : Atom {
+    type S;
+    type G;
+    type M;
+    fn candidates(&self, state: &Self::S, goal: &Self::G) -> Vec<Self::M>;
 }
 
-pub trait Goal<S:Clone,G:Goal<S,G,O,M,T>,O:Operator<S>,M:Method<S,G,O,M,T>,T:MethodTag<S,G,O,M,T>> : Clone {
-    fn starting_tasks(&self) -> Vec<Task<O,T>>;
+pub trait Goal : Clone {
+    type O: Operator;
+    type T: Atom;
+    fn starting_tasks(&self) -> Vec<Task<Self::O,Self::T>>;
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -295,26 +303,21 @@ pub enum Task<O:Atom, T:Atom> {
 }
 
 #[derive(Clone)]
-struct PlannerStep<S,G,O,M,T>
-where S:Orderable, G:Goal<S,G,O,M,T>, O:Atom+Operator<S>,
-      M:Atom+Method<S,G,O,M,T>,
-      T:Atom+MethodTag<S,G,O,M,T> {
+struct PlannerStep<S,O,T>
+where S:Orderable, O:Operator, T:MethodTag {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
     tasks: Vec<Task<O,T>>,
     plan: Vec<O>,
-    depth: usize,
-    _ph_m: PhantomData<M>,
-    _ph_g: PhantomData<G>
+    depth: usize
 }
 
-impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T> {
+impl <S,O,T,G,M> PlannerStep<S,O,T>
+    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>, G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T> {
+
     pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
-        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, _ph_m: PhantomData, _ph_g: PhantomData }
+        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0}
     }
 
     pub fn is_complete(&self) -> bool {
@@ -372,14 +375,14 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
     fn operator_planner_step(&self, state: S, operator: O) -> Self {
         let mut updated_plan = self.plan.clone();
         updated_plan.push(operator);
-        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData }
+        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1 }
     }
 
     fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, _ph_m: PhantomData, _ph_g: PhantomData}
+        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1}
     }
 
     fn verb(&self, text: String, level: usize) {
@@ -391,7 +394,7 @@ impl <S,G,O,M,T> PlannerStep<S,G,O,M,T>
 
 #[cfg(test)]
 mod tests {
-    use crate::{find_first_plan, Task, Atom};
+    use crate::{find_first_plan, Atom, Goal};
     use rust_decimal_macros::*;
     use locations::LocationGraph;
 
@@ -405,13 +408,13 @@ mod tests {
 
     #[test]
     fn simple_travel_1() {
-        use crate::tests::simple_travel::{TravelState, TravelGoal, CityMethodTag, CityOperator};
-        use Location::*; use CityOperator::*; use CityMethodTag::*;
+        use crate::tests::simple_travel::{TravelState, TravelGoal, CityOperator};
+        use Location::*; use CityOperator::*;
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);
         state.add_traveler('M', dec!(20), Home);
         let goal = TravelGoal::new(vec![('M', Park)]);
-        let tasks = vec![Task::MethodTag(Travel('M'))];
+        let tasks = goal.starting_tasks();
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);
         assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
@@ -419,13 +422,13 @@ mod tests {
 
     #[test]
     fn simple_travel_2() {
-        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityMethodTag, CityOperator};
-        use Location::*; use CityOperator::*; use CityMethodTag::*;
+        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityOperator};
+        use Location::*; use CityOperator::*;
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);
         state.add_traveler('M', dec!(20), Home);
         let goal = TravelGoal::new(vec![('M', Park)]);
-        let tasks = vec![Task::MethodTag(Travel('M'))];
+        let tasks = goal.starting_tasks();
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
         println!("the plan: {:?}", &plan);
         assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);

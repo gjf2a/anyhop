@@ -57,45 +57,62 @@ impl BacktrackStrategy {
     }
 }
 
-/*
-// See https://doc.rust-lang.org/1.0.0/style/ownership/builders.html
-// Do this later; I can always make AnytimePlanner::new() private
-// to mandate the Builder.
-//
-// I started work on this, and I got frustrated that any default for the cost
-// function overly constrains the parameterized type C.
-//
-// See https://stackoverflow.com/questions/32053402/why-am-i-getting-parameter-is-never-used-e0392
-// to deal better with the generic types.
-pub struct AnytimePlannerBuilder<'a,S,G,O,M,T,C,F>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T>,
-          C:Num+Ord+PartialOrd+Copy+Debug,
-          F:Fn(&Vec<O>) -> C {
-    state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &'a F,
-    verbose: usize, apply_cutoff: bool
+pub struct AnytimePlannerBuilder<'a,S,G,F>
+    where S:Orderable, G:Goal, F: ?Sized {
+    state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy,
+    cost_func: &'a F, verbose: usize, apply_cutoff: bool
 }
 
-impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,O,M,T,C,F>
-    where S:Orderable, G:Goal<S,G,O,M,T>, O:Operator<S>,
-          M:Method<S,G,O,M,T>,
-          T:MethodTag<S,G,O,M,T>,
-          C:Num+Ord+PartialOrd+Copy+Debug,
-          F:Fn(&Vec<O>) -> C {
-    pub fn new(state: &S, goal: &G, cost_func: &F) -> Self {
-        AnytimePlannerBuilder { state, goal, time_limit_ms: None,
+impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,F>
+    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>,
+          G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T>,
+          C:Cost, F:?Sized + Fn(&Vec<O>) -> C {
+
+    pub fn state_goal_cost(state: &S, goal: &G, cost_func: &'a F) -> Self {
+        AnytimePlannerBuilder { state: state.clone(), goal: goal.clone(), time_limit_ms: None,
             strategy: BacktrackStrategy::Steady(BacktrackPreference::MostRecent),
             cost_func, verbose: 0, apply_cutoff: true
         }
     }
+
+    pub fn verbose(&'a mut self, verbose: usize) -> &'a mut Self {
+        self.verbose = verbose;
+        self
+    }
+
+    pub fn time_limit_ms(&'a mut self, time_limit_ms: u128) -> &'a mut Self {
+        self.time_limit_ms = Some(time_limit_ms);
+        self
+    }
+
+    pub fn no_cutoff(&'a mut self) -> &'a mut Self {
+        self.apply_cutoff = false;
+        self
+    }
+
+    pub fn strategy(&'a mut self, strategy: BacktrackStrategy) -> &'a mut Self {
+        self.strategy = strategy;
+        self
+    }
+
+    pub fn construct(&self) -> AnytimePlanner<S,O,T,C> {
+        AnytimePlanner::plan(&self.state, &self.goal, self.time_limit_ms, self.strategy, &self.cost_func, self.verbose, self.apply_cutoff)
+    }
 }
-*/
+
+impl <'a,S,G,O,M,T> AnytimePlannerBuilder<'a,S,G,dyn Fn(&Vec<O>) -> usize>
+    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>,
+          G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T> {
+
+    pub fn state_goal(state: &S, goal: &G) -> Self {
+        AnytimePlannerBuilder::state_goal_cost(state, goal, &|v| v.len())
+    }
+}
 
 pub struct AnytimePlanner<S,O,T,C>
     where S:Orderable, O:Operator,
           T:MethodTag,
-          C:Num+Ord+PartialOrd+Copy+Debug {
+          C:Cost {
     plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
     discovery_prunes: Vec<usize>,
@@ -118,10 +135,10 @@ pub fn summary_csv_header() -> String {
 impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
     where S:Orderable, O:Operator<S=S>,
           T:MethodTag<S=S,G=G,M=M>,
-          C:Num+Ord+PartialOrd+Copy+Debug,
+          C:Cost,
           G:Goal<T=T,O=O>,
           M:Method<S=S,G=G,O=O,T=T> {
-    pub fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+    fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
@@ -220,6 +237,14 @@ impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
             .fold(0, |best, i| if self.costs[i] < self.costs[best] {i} else {best})
     }
 
+    pub fn get_plan(&self, i: usize) -> Vec<O> {
+        self.plans[i].clone()
+    }
+
+    pub fn get_best_plan(&self) -> Vec<O> {
+        self.get_plan(self.index_of_cheapest())
+    }
+
     fn plan_data(&self, p: usize) -> (u128,usize,usize,usize) {
         (self.discovery_times[p], self.discovery_prunes[p], self.discovery_prior_plans[p],
          self.discovery_prunes[p] + self.discovery_prior_plans[p])
@@ -256,6 +281,8 @@ impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
 pub trait Orderable = Clone + Debug + Ord + Eq;
 
 pub trait Atom = Copy + Clone + Debug + Ord + Eq;
+
+pub trait Cost = Num + Ord + PartialOrd + Copy + Debug;
 
 pub trait Operator : Atom {
     type S:Clone;
@@ -394,7 +421,7 @@ impl <S,O,T,G,M> PlannerStep<S,O,T>
 
 #[cfg(test)]
 mod tests {
-    use crate::{find_first_plan, Atom, Goal};
+    use crate::{find_first_plan, Atom, Goal, AnytimePlannerBuilder};
     use rust_decimal_macros::*;
     use locations::LocationGraph;
 
@@ -430,6 +457,21 @@ mod tests {
         let goal = TravelGoal::new(vec![('M', Park)]);
         let tasks = goal.starting_tasks();
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
+        println!("the plan: {:?}", &plan);
+        assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
+    }
+
+    #[test]
+    fn test_anytime() {
+        use crate::tests::simple_travel::{TravelState, TravelGoal, CityOperator};
+        use Location::*; use CityOperator::*;
+        let locations = LocationGraph::new(vec![(Home, Park, 8)]);
+        let mut state = TravelState::new(locations, TaxiStand);
+        state.add_traveler('M', dec!(20), Home);
+        let goal = TravelGoal::new(vec![('M', Park)]);
+        let plan = AnytimePlannerBuilder::state_goal(&state, &goal)
+            .construct()
+            .get_best_plan();
         println!("the plan: {:?}", &plan);
         assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
     }

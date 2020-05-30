@@ -60,7 +60,7 @@ impl <T:Atom,L:Atom> MethodTag for CityMethodTag<T,L> {
     type G = TravelGoal<T,L>;
     type M = CityMethod<T,L>;
 
-    fn candidates(&self, state: &TravelState<T,L>, goal: &TravelGoal<T,L>) -> Vec<CityMethod<T,L>> {
+    fn candidates(&self, state: &TravelState<T,L>, _goal: &TravelGoal<T,L>) -> Vec<CityMethod<T,L>> {
         match self {
             CityMethodTag::Travel(t, destination) =>
                 if let Some(start) = state.get_location(*t) {
@@ -172,13 +172,5 @@ impl <T:Atom,L:Atom> TravelGoal<T,L> {
             result.goals.insert(traveler, goal);
         }
         result
-    }
-
-    pub fn goal_for(&self, traveler: T) -> Option<L> {
-        self.goals.get(&traveler).map(|g| *g)
-    }
-
-    pub fn all_travelers(&self) -> Vec<T> {
-        self.goals.iter().map(|g| *g.0).collect()
     }
 }

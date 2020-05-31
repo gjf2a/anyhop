@@ -85,8 +85,13 @@ impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,F>
         self
     }
 
-    pub fn no_cutoff(&'a mut self) -> &'a mut Self {
-        self.apply_cutoff = false;
+    pub fn possible_time_limit_ms(&'a mut self, time_limit_ms: Option<u128>) -> &'a mut Self {
+        self.time_limit_ms = time_limit_ms;
+        self
+    }
+
+    pub fn apply_cutoff(&'a mut self, apply_cutoff: bool) -> &'a mut Self {
+        self.apply_cutoff = apply_cutoff;
         self
     }
 

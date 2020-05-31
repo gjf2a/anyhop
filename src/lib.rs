@@ -245,6 +245,10 @@ impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
         self.get_plan(self.index_of_cheapest())
     }
 
+    pub fn get_all_plans(&self) -> Vec<Vec<O>> {
+        self.plans.clone()
+    }
+
     fn plan_data(&self, p: usize) -> (u128,usize,usize,usize) {
         (self.discovery_times[p], self.discovery_prunes[p], self.discovery_prior_plans[p],
          self.discovery_prunes[p] + self.discovery_prior_plans[p])
@@ -469,10 +473,18 @@ mod tests {
         let mut state = TravelState::new(locations, TaxiStand);
         state.add_traveler('M', dec!(20), Home);
         let goal = TravelGoal::new(vec![('M', Park)]);
-        let plan = AnytimePlannerBuilder::state_goal(&state, &goal)
-            .construct()
-            .get_best_plan();
+        let outcome = AnytimePlannerBuilder::state_goal(&state, &goal)
+            .construct();
+        let plan = outcome.get_best_plan();
+        println!("all plans: {:?}", outcome.get_all_plans());
         println!("the plan: {:?}", &plan);
-        assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
+        // TODO: With the domain as stated, this is the correct low-cost plan.
+        //  To make the test more interesting, we should have a cost function
+        //  that uses a time metric. That cost function would no doubt prefer
+        //  to drive.
+        //  We could even have a third cost function regarding money, and spending
+        //  very little of it.
+        //  But all this is not worth it right now.
+        assert_eq!(plan, vec![Walk('M', Home, Park)]);
     }
 }

@@ -1,0 +1,14 @@
+[package]
+name = "anyhop"
+version = "0.1.0"
+authors = ["gjf2a <ferrer@hendrix.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rust_decimal = "1.4.1"
+rust_decimal_macros = "1.4.1"
+immutable-map = "0.1.2"
+num-traits = "0.2.11"
+locations = {git = "https://github.com/gjf2a/locations"}

@@ -6,8 +6,8 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
 
-pub fn find_first_plan<S,G,O,T,M>(state: &S, goal: &G, tasks: &Vec<Task<O,T>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Goal<T=T,O=O>, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>, M:Method<S=S,G=G,O=O,T=T> {
+pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
+    where S:Orderable, G:Goal<M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
     let mut choices = VecDeque::new();
@@ -63,9 +63,9 @@ pub struct AnytimePlannerBuilder<'a,S,G,F>
     cost_func: &'a F, verbose: usize, apply_cutoff: bool
 }
 
-impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,F>
-    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>,
-          G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T>,
+impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
+    where S:Orderable, O:Operator<S=S>,
+          G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
           C:Cost, F:?Sized + Fn(&Vec<O>) -> C {
 
     pub fn state_goal_cost(state: &S, goal: &G, cost_func: &'a F) -> Self {
@@ -100,24 +100,22 @@ impl <'a,S,G,O,M,T,C,F> AnytimePlannerBuilder<'a,S,G,F>
         self
     }
 
-    pub fn construct(&self) -> AnytimePlanner<S,O,T,C> {
+    pub fn construct(&self) -> AnytimePlanner<S,O,M,C> {
         AnytimePlanner::plan(&self.state, &self.goal, self.time_limit_ms, self.strategy, &self.cost_func, self.verbose, self.apply_cutoff)
     }
 }
 
-impl <'a,S,G,O,M,T> AnytimePlannerBuilder<'a,S,G,dyn Fn(&Vec<O>) -> usize>
-    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>,
-          G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T> {
+impl <'a,S,G,O,M> AnytimePlannerBuilder<'a,S,G,dyn Fn(&Vec<O>) -> usize>
+    where S:Orderable, O:Operator<S=S>,
+          G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O> {
 
     pub fn state_goal(state: &S, goal: &G) -> Self {
         AnytimePlannerBuilder::state_goal_cost(state, goal, &|v| v.len())
     }
 }
 
-pub struct AnytimePlanner<S,O,T,C>
-    where S:Orderable, O:Operator,
-          T:MethodTag,
-          C:Cost {
+pub struct AnytimePlanner<S,O, M,C>
+    where S:Orderable, O:Operator, M:Method, C:Cost {
     plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
     discovery_prunes: Vec<usize>,
@@ -130,19 +128,18 @@ pub struct AnytimePlanner<S,O,T,C>
     total_pruned: usize,
     start_time: Instant,
     total_time: Option<u128>,
-    current_step: PlannerStep<S,O,T>
+    current_step: PlannerStep<S,O,M>
 }
 
 pub fn summary_csv_header() -> String {
     format!("label,first,most_expensive,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
 }
 
-impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
+impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     where S:Orderable, O:Operator<S=S>,
-          T:MethodTag<S=S,G=G,M=M>,
           C:Cost,
-          G:Goal<T=T,O=O>,
-          M:Method<S=S,G=G,O=O,T=T> {
+          G:Goal<M=M,O=O>,
+          M:Method<S=S,G=G,O=O> {
     fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
@@ -202,7 +199,7 @@ impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,O,T>>, cost_func: &F) -> (bool,BacktrackStrategy) {
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,O,M>>, cost_func: &F) -> (bool,BacktrackStrategy) {
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
@@ -228,7 +225,7 @@ impl <S,O,T,C,G,M> AnytimePlanner<S,O,T,C>
         self.current_step.verb(format!("Plan found. Cost: {:?}; Time: {}", cost, time), 0);
     }
 
-    fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,T>>) {
+    fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
         self.current_step = if backtrack.0 && backtrack.1.pref() == BacktrackPreference::LeastRecent {
             choices.pop_front()
         } else {
@@ -315,44 +312,36 @@ pub trait Method : Atom {
     type S;
     type G;
     type O: Atom;
-    type T: Atom;
-    fn apply(&self, state: &Self::S, goal: &Self::G) -> MethodResult<Self::O, Self::T>;
-}
-
-pub trait MethodTag : Atom {
-    type S;
-    type G;
-    type M;
-    fn candidates(&self, state: &Self::S, goal: &Self::G) -> Vec<Self::M>;
+    fn apply(&self, state: &Self::S, goal: &Self::G) -> MethodResult<Self::O, Self>;
 }
 
 pub trait Goal : Clone {
     type O: Operator;
-    type T: Atom;
-    fn starting_tasks(&self) -> Vec<Task<Self::O,Self::T>>;
+    type M: Atom;
+    fn starting_tasks(&self) -> Vec<Task<Self::O,Self::M>>;
 }
 
 #[derive(Copy,Clone,Debug)]
 pub enum Task<O:Atom, T:Atom> {
     Operator(O),
-    MethodTag(T)
+    Method(T)
 }
 
 #[derive(Clone)]
-struct PlannerStep<S,O,T>
-where S:Orderable, O:Operator, T:MethodTag {
+struct PlannerStep<S,O,M>
+where S:Orderable, O:Operator, M:Method {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
-    tasks: Vec<Task<O,T>>,
+    tasks: Vec<Task<O,M>>,
     plan: Vec<O>,
     depth: usize
 }
 
-impl <S,O,T,G,M> PlannerStep<S,O,T>
-    where S:Orderable, O:Operator<S=S>, T:MethodTag<S=S,G=G,M=M>, G:Goal<T=T,O=O>, M:Method<S=S,G=G,O=O,T=T> {
+impl <S,O,G,M> PlannerStep<S,O,M>
+    where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O> {
 
-    pub fn new(state: &S, tasks: &Vec<Task<O,T>>, verbose: usize) -> Self {
+    pub fn new(state: &S, tasks: &Vec<Task<O,M>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0}
     }
 
@@ -369,7 +358,7 @@ impl <S,O,T,G,M> PlannerStep<S,O,T>
             if let Some(task1) = self.tasks.get(0) {
                 match task1 {
                     Task::Operator(op) => self.apply_operator(*op),
-                    Task::MethodTag(tag) => self.apply_method(*tag, goal)
+                    Task::Method(tag) => self.apply_method(*tag, goal)
                 }
             } else {
                 self.verb(format!("Depth {} returns failure", self.depth), 3);
@@ -390,18 +379,16 @@ impl <S,O,T,G,M> PlannerStep<S,O,T>
         vec![]
     }
 
-    fn apply_method(&self, tag: T, goal: &G) -> Vec<Self> {
+    fn apply_method(&self, candidate: M, goal: &G) -> Vec<Self> {
         let mut planner_steps = Vec::new();
-        for candidate in tag.candidates(&self.state, goal) {
-            match candidate.apply(&self.state, goal) {
-                MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
-                MethodResult::Failure => {self.verb(format!("No plan found by method {:?}", candidate), 3);},
-                MethodResult::TaskLists(subtask_alternatives) => {
-                    self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 3);
-                    for subtasks in subtask_alternatives.iter() {
-                        self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 3);
-                        planner_steps.push(self.method_planner_step(subtasks));
-                    }
+        match candidate.apply(&self.state, goal) {
+            MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
+            MethodResult::Failure => { self.verb(format!("No plan found by method {:?}", candidate), 3); },
+            MethodResult::TaskLists(subtask_alternatives) => {
+                self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 3);
+                for subtasks in subtask_alternatives.iter() {
+                    self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 3);
+                    planner_steps.push(self.method_planner_step(subtasks));
                 }
             }
         }
@@ -414,7 +401,7 @@ impl <S,O,T,G,M> PlannerStep<S,O,T>
         PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1 }
     }
 
-    fn method_planner_step(&self, subtasks: &Vec<Task<O,T>>) -> Self {
+    fn method_planner_step(&self, subtasks: &Vec<Task<O,M>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
@@ -435,7 +422,6 @@ mod tests {
     use locations::LocationGraph;
 
     mod simple_travel;
-    mod simple_travel_2;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
     enum Location {
@@ -445,20 +431,6 @@ mod tests {
     #[test]
     fn simple_travel_1() {
         use crate::tests::simple_travel::{TravelState, TravelGoal, CityOperator};
-        use Location::*; use CityOperator::*;
-        let locations = LocationGraph::new(vec![(Home, Park, 8)]);
-        let mut state = TravelState::new(locations, TaxiStand);
-        state.add_traveler('M', dec!(20), Home);
-        let goal = TravelGoal::new(vec![('M', Park)]);
-        let tasks = goal.starting_tasks();
-        let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
-        println!("the plan: {:?}", &plan);
-        assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
-    }
-
-    #[test]
-    fn simple_travel_2() {
-        use crate::tests::simple_travel_2::{TravelState, TravelGoal, CityOperator};
         use Location::*; use CityOperator::*;
         let locations = LocationGraph::new(vec![(Home, Park, 8)]);
         let mut state = TravelState::new(locations, TaxiStand);

@@ -5,6 +5,9 @@ use std::fmt::Debug;
 use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
+use std::io;
+use std::fs::File;
+use std::io::Write;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
@@ -464,4 +467,34 @@ mod tests {
         //  But all this is not worth it right now.
         assert_eq!(plan, vec![Walk('M', Home, Park)]);
     }
+}
+
+pub fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, parser: P) -> io::Result<()>
+where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
+      P: Fn(&str) -> io::Result<(S, G)> {
+    use crate::BacktrackStrategy::{Alternate, Steady};
+    use crate::BacktrackPreference::{LeastRecent, MostRecent};
+    println!("Running {}", file);
+    let (start, goal) = parser(file)?;
+    for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
+        for apply_cutoff in vec![true, false] {
+            let outcome = AnytimePlannerBuilder::state_goal(&start, &goal)
+                .apply_cutoff(apply_cutoff)
+                .strategy(strategy)
+                .possible_time_limit_ms(limit_ms)
+                .verbose(1)
+                .construct();
+            let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" }).replace(")", "_").replace("(", "_");
+            let row = outcome.summary_csv_row(label.as_str());
+            print!("{}", row);
+            results.push_str(row.as_str());
+            let mut output = File::create(format!("{}.csv", label))?;
+            write!(output, "{}", outcome.instance_csv())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn desuffix(filename: &str) -> String {
+    filename.split(".").next().unwrap().to_string()
 }

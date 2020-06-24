@@ -8,6 +8,8 @@ use num_traits::Num;
 use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
+use std::iter::{Peekable, Skip};
+use std::env::Args;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
@@ -475,14 +477,8 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
     where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
           P: Fn(&str) -> io::Result<(S, G)> {
     let mut results = summary_csv_header();
-    let mut limit_ms = None;
     let mut args_iter = env::args().skip(1).peekable();
-    while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
-        match args_iter.next().unwrap().as_str() {
-            "-5s" => limit_ms = Some(5000),
-            tag => println!("Unrecognized argument: {}",tag)
-        }
-    }
+    let limit_ms = find_time_limit(&mut args_iter);
     for file in args_iter {
         if file.ends_with("*") {
             let mut no_star = file.clone();
@@ -503,6 +499,17 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
     let mut output = File::create("results.csv")?;
     write!(output, "{}", results.as_str())?;
     Ok(())
+}
+
+fn find_time_limit(args_iter: &mut Peekable<Skip<Args>>) -> Option<u128> {
+    let mut limit_ms = None;
+    while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
+        match args_iter.next().unwrap().as_str() {
+            "-5s" => limit_ms = Some(5000),
+            tag => println!("Unrecognized argument: {}",tag)
+        }
+    }
+    limit_ms
 }
 
 fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, parser: &P) -> io::Result<()>

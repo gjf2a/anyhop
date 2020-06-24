@@ -504,9 +504,16 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
 fn find_time_limit(args_iter: &mut Peekable<Skip<Args>>) -> Option<u128> {
     let mut limit_ms = None;
     while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
-        match args_iter.next().unwrap().as_str() {
-            "-5s" => limit_ms = Some(5000),
-            tag => println!("Unrecognized argument: {}",tag)
+        let arg = args_iter.next().unwrap_or(String::from("-"));
+        let arg = arg.as_str();
+        if arg.starts_with("-") && arg.ends_with("s") && arg.len() > 2 {
+            let num = &arg[1..arg.len() - 1];
+            match num.parse::<u128>() {
+                Ok(num) => limit_ms = Some(num * 1000),
+                Err(_) => println!("{} is not valid", num)
+            }
+        } else {
+            println!("Unrecognized argument: {}", arg);
         }
     }
     limit_ms

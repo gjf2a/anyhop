@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::collections::VecDeque;
 use std::time::Instant;
 use num_traits::Num;
-use std::io;
+use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
 
@@ -469,7 +469,43 @@ mod tests {
     }
 }
 
-pub fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, parser: P) -> io::Result<()>
+// Experiment harness functions
+
+pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
+    where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
+          P: Fn(&str) -> io::Result<(S, G)> {
+    let mut results = summary_csv_header();
+    let mut limit_ms = None;
+    let mut args_iter = env::args().skip(1).peekable();
+    while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
+        match args_iter.next().unwrap().as_str() {
+            "-5s" => limit_ms = Some(5000),
+            tag => println!("Unrecognized argument: {}",tag)
+        }
+    }
+    for file in args_iter {
+        if file.ends_with("*") {
+            let mut no_star = file.clone();
+            no_star.pop();
+            for entry in fs::read_dir(".")? {
+                let entry = entry?;
+                let entry = entry.file_name();
+                let entry = entry.to_str();
+                let entry_name = entry.unwrap();
+                if entry_name.starts_with(no_star.as_str()) {
+                    assess_file(entry_name, &mut results, limit_ms, parser)?;
+                }
+            }
+        } else {
+            assess_file(file.as_str(), &mut results, limit_ms, parser)?;
+        }
+    }
+    let mut output = File::create("results.csv")?;
+    write!(output, "{}", results.as_str())?;
+    Ok(())
+}
+
+fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, parser: &P) -> io::Result<()>
 where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
       P: Fn(&str) -> io::Result<(S, G)> {
     use crate::BacktrackStrategy::{Alternate, Steady};
@@ -495,6 +531,6 @@ where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
     Ok(())
 }
 
-pub fn desuffix(filename: &str) -> String {
+fn desuffix(filename: &str) -> String {
     filename.split(".").next().unwrap().to_string()
 }

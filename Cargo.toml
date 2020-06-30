@@ -1,6 +1,6 @@
 [package]
 name = "anyhop"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["gjf2a <ferrer@hendrix.edu>"]
 edition = "2018"
 

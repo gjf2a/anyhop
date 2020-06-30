@@ -535,7 +535,7 @@ where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
                 .verbose(1)
                 .construct();
             println!("Plan:");
-            println!("{}", outcome.get_best_plan());
+            println!("{:?}", outcome.get_best_plan());
             let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" }).replace(")", "_").replace("(", "_");
             let row = outcome.summary_csv_row(label.as_str());
             print!("{}", row);

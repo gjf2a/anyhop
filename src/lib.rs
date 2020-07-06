@@ -478,7 +478,7 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
           P: Fn(&str) -> io::Result<(S, G)> {
     let mut results = summary_csv_header();
     let mut args_iter = env::args().skip(1).peekable();
-    let limit_ms = find_time_limit(&mut args_iter);
+    let (limit_ms, verbosity) = find_time_limit_and_verbosity(&mut args_iter);
     for file in args_iter {
         if file.ends_with("*") {
             let mut no_star = file.clone();
@@ -489,11 +489,11 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
                 let entry = entry.to_str();
                 let entry_name = entry.unwrap();
                 if entry_name.starts_with(no_star.as_str()) {
-                    assess_file(entry_name, &mut results, limit_ms, parser)?;
+                    assess_file(entry_name, &mut results, limit_ms, verbosity, parser)?;
                 }
             }
         } else {
-            assess_file(file.as_str(), &mut results, limit_ms, parser)?;
+            assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
         }
     }
     let mut output = File::create("results.csv")?;
@@ -501,25 +501,41 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
     Ok(())
 }
 
-fn find_time_limit(args_iter: &mut Peekable<Skip<Args>>) -> Option<u128> {
+fn find_time_limit_and_verbosity(args_iter: &mut Peekable<Skip<Args>>) -> (Option<u128>,Option<usize>) {
     let mut limit_ms = None;
+    let mut verbosity = None;
     while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
         let arg = args_iter.next().unwrap_or(String::from("-"));
         let arg = arg.as_str();
-        if arg.starts_with("-") && arg.ends_with("s") && arg.len() > 2 {
-            let num = &arg[1..arg.len() - 1];
-            match num.parse::<u128>() {
-                Ok(num) => limit_ms = Some(num * 1000),
-                Err(_) => println!("{} is not valid", num)
-            }
+        if arg_matches(arg, "s") {
+            limit_ms = extract_arg_num(arg).map(|n: u128| n * 1000);
+        } else if arg_matches(arg, "v") {
+            verbosity = extract_arg_num(arg);
+        } else if arg.starts_with("-h") {
+            println!("Usage: planner [-h] [-(int)s] [[(int)v] plan_files");
+            println!("\t-h: This message");
+            println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
+            println!("\t-(int)v: Verbosity (0-3)");
         } else {
             println!("Unrecognized argument: {}", arg);
         }
     }
-    limit_ms
+    (limit_ms, verbosity)
 }
 
-fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, parser: &P) -> io::Result<()>
+fn arg_matches(arg: &str, end: &str) -> bool {
+    arg.starts_with("-") && arg.ends_with(end) && arg.len() > 2
+}
+
+fn extract_arg_num<N: std::str::FromStr>(arg: &str) -> Option<N> {
+    let num = &arg[1..arg.len() - 1];
+    match num.parse::<N>() {
+        Ok(num) => Some(num),
+        Err(_) => {println!("{} is not valid", num); None}
+    }
+}
+
+fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()>
 where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
       P: Fn(&str) -> io::Result<(S, G)> {
     use crate::BacktrackStrategy::{Alternate, Steady};
@@ -532,7 +548,7 @@ where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
                 .apply_cutoff(apply_cutoff)
                 .strategy(strategy)
                 .possible_time_limit_ms(limit_ms)
-                .verbose(1)
+                .verbose(verbosity.unwrap_or(1))
                 .construct();
             println!("Plan:");
             println!("{:?}", outcome.get_best_plan());

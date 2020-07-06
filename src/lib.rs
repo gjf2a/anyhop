@@ -160,6 +160,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, apply_cutoff: bool) {
         let mut choices = VecDeque::new();
         let mut backtrack = (false, strategy);
+        self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
             backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {

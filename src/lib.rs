@@ -567,20 +567,20 @@ where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
                 Some(plan) => {
                     println!("Plan:");
                     println!("{:?}", plan);
+                    let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" })
+                        .replace(")", "_")
+                        .replace("(", "_")
+                        .replace("/", "_")
+                        .replace("\\", "_")
+                        .replace(":", "_");
+                    let row = outcome.summary_csv_row(label.as_str());
+                    print!("{}", row);
+                    results.push_str(row.as_str());
+                    let mut output = File::create(format!("{}.csv", label))?;
+                    write!(output, "{}", outcome.instance_csv())?;
                 },
                 None => println!("No plan found.")
             };
-            let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" })
-                .replace(")", "_")
-                .replace("(", "_")
-                .replace("/", "_")
-                .replace("\\", "_")
-                .replace(":", "_");
-            let row = outcome.summary_csv_row(label.as_str());
-            print!("{}", row);
-            results.push_str(row.as_str());
-            let mut output = File::create(format!("{}.csv", label))?;
-            write!(output, "{}", outcome.instance_csv())?;
         }
     }
     Ok(())

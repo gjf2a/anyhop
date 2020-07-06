@@ -375,7 +375,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
     fn apply_operator(&self, operator: O) -> Vec<Self> {
         if let Some(new_state) = operator.apply(&self.state) {
             if self.prev_states.contains(&new_state) {
-                self.verb(3,format!("Cycle; pruning..."));
+                self.verb(3,format!("Cycle after applying operator {:?}; pruning...", operator));
             } else {
                 self.verb(3,format!("Depth {}; new_state: {:?}", self.depth, new_state));
                 return vec![self.operator_planner_step(new_state, operator)];

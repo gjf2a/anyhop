@@ -14,7 +14,7 @@ use std::env::Args;
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
     let mut p = PlannerStep::new(state, tasks, verbose);
-    p.verb(format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks), 0);
+    p.verb(0,format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks));
     let mut choices = VecDeque::new();
     while !p.is_complete() {
         for option in p.get_next_step(goal) {
@@ -23,7 +23,7 @@ pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, ver
         match choices.pop_back() {
             Some(choice) => {p = choice;},
             None => {
-                p.verb(format!("** No plan found **"), 0);
+                p.verb(0,format!("** No plan found **"));
                 return None;
             }
         }
@@ -165,19 +165,19 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {
                 let time = self.time_since_start();
                 self.total_pruned += 1;
-                self.current_step.verb(format!("Plan pruned. Time: {}", time), 1);
+                self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
                 (true, backtrack.1.next())
             } else {
                 self.add_choices(goal, backtrack.1, &mut choices, cost_func)
             };
             if choices.is_empty() {
                 self.set_total_time();
-                self.current_step.verb(format!("** No plans left to be found ({} ms elapsed) **", self.total_time.unwrap()), 0);
-                self.current_step.verb(format!("{} attempts, {} found, {} pruned", self.plans.len() + self.total_pruned, self.plans.len(), self.total_pruned), 0);
+                self.current_step.verb(0,format!("** No plans left to be found ({} ms elapsed) **", self.total_time.unwrap()));
+                self.current_step.verb(0,format!("{} attempts, {} found, {} pruned", self.plans.len() + self.total_pruned, self.plans.len(), self.total_pruned));
                 break;
             } else if self.time_up(time_limit_ms) {
                 self.set_total_time();
-                self.current_step.verb(format!("Time's up! {:?} ms elapsed", time_limit_ms), 0);
+                self.current_step.verb(0,format!("Time's up! {:?} ms elapsed", time_limit_ms));
                 break;
             } else {
                 self.pick_choice(backtrack, &mut choices);
@@ -227,7 +227,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         self.discovery_prunes.push(self.total_pruned);
         self.discovery_prior_plans.push(self.plans.len());
         self.plans.push(plan);
-        self.current_step.verb(format!("Plan found. Cost: {:?}; Time: {}", cost, time), 0);
+        self.current_step.verb(0,format!("Plan found. Cost: {:?}; Time: {}", cost, time));
     }
 
     fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
@@ -355,9 +355,9 @@ impl <S,O,G,M> PlannerStep<S,O,M>
     }
 
     pub fn get_next_step(&self, goal: &G) -> Vec<Self> {
-        self.verb(format!("depth {} tasks {:?}", self.depth, self.tasks), 2);
+        self.verb(2,format!("depth {} tasks {:?}", self.depth, self.tasks));
         if self.is_complete() {
-            self.verb(format!("depth {} returns plan {:?}", self.depth, self.plan), 3);
+            self.verb(3,format!("depth {} returns plan {:?}", self.depth, self.plan));
             vec![self.clone()]
         } else {
             if let Some(task1) = self.tasks.get(0) {
@@ -366,7 +366,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
                     Task::Method(tag) => self.apply_method(*tag, goal)
                 }
             } else {
-                self.verb(format!("Depth {} returns failure", self.depth), 3);
+                self.verb(3,format!("Depth {} returns failure", self.depth));
                 vec![]
             }
         }
@@ -375,9 +375,9 @@ impl <S,O,G,M> PlannerStep<S,O,M>
     fn apply_operator(&self, operator: O) -> Vec<Self> {
         if let Some(new_state) = operator.apply(&self.state) {
             if self.prev_states.contains(&new_state) {
-                self.verb(format!("Cycle; pruning..."), 3);
+                self.verb(3,format!("Cycle; pruning..."));
             } else {
-                self.verb(format!("Depth {}; new_state: {:?}", self.depth, new_state), 3);
+                self.verb(3,format!("Depth {}; new_state: {:?}", self.depth, new_state));
                 return vec![self.operator_planner_step(new_state, operator)];
             }
         }
@@ -388,11 +388,11 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         let mut planner_steps = Vec::new();
         match candidate.apply(&self.state, goal) {
             MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
-            MethodResult::Failure => { self.verb(format!("No plan found by method {:?}", candidate), 3); },
+            MethodResult::Failure => { self.verb(3,format!("No plan found by method {:?}", candidate)); },
             MethodResult::TaskLists(subtask_alternatives) => {
-                self.verb(format!("{} alternative subtask lists", subtask_alternatives.len()), 3);
+                self.verb(3,format!("{} alternative subtask lists", subtask_alternatives.len()));
                 for subtasks in subtask_alternatives.iter() {
-                    self.verb(format!("depth {} new tasks: {:?}", self.depth, subtasks), 3);
+                    self.verb(3,format!("depth {} new tasks: {:?}", self.depth, subtasks));
                     planner_steps.push(self.method_planner_step(subtasks));
                 }
             }
@@ -413,7 +413,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1}
     }
 
-    fn verb(&self, text: String, level: usize) {
+    fn verb(&self, level: usize, text: String) {
         if self.verbose > level {
             println!("{}", text);
         }
@@ -515,7 +515,17 @@ fn find_time_limit_and_verbosity(args_iter: &mut Peekable<Skip<Args>>) -> (Optio
             println!("Usage: planner [-h] [-(int)s] [[(int)v] plan_files");
             println!("\t-h: This message");
             println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
-            println!("\t-(int)v: Verbosity (0-3)");
+            println!("\t-(int)v: Verbosity (0-4)");
+            println!("\t\t-0v: Reports final plan only");
+            println!("\t\t-1v: Reports plan found, time limit reached, no more plans to be found");
+            println!("\t\t-2v: Reports branch-and-bound pruning");
+            println!("\t\t-3v: Reports tasks at each depth level reached");
+            println!("\t\t-4v: Reports the following at each new depth level:");
+            println!("\t\t\tPlan found");
+            println!("\t\t\tFailure");
+            println!("\t\t\tPruning due to cycle");
+            println!("\t\t\tNew state");
+            println!("\t\t\tAlternative task lists");
         } else {
             println!("Unrecognized argument: {}", arg);
         }

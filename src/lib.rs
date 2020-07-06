@@ -160,6 +160,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, apply_cutoff: bool) {
         let mut choices = VecDeque::new();
         let mut backtrack = (false, strategy);
+        self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
@@ -457,6 +458,7 @@ mod tests {
         state.add_traveler('M', dec!(20), Home);
         let goal = TravelGoal::new(vec![('M', Park)]);
         let outcome = AnytimePlannerBuilder::state_goal(&state, &goal)
+            .verbose(4)
             .construct();
         let plan = outcome.get_best_plan();
         println!("all plans: {:?}", outcome.get_all_plans());

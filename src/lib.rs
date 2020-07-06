@@ -246,11 +246,11 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             .fold(0, |best, i| if self.costs[i] < self.costs[best] {i} else {best})
     }
 
-    pub fn get_plan(&self, i: usize) -> Vec<O> {
-        self.plans[i].clone()
+    pub fn get_plan(&self, i: usize) -> Option<Vec<O>> {
+        self.plans.get(i).map(|p| p.clone())
     }
 
-    pub fn get_best_plan(&self) -> Vec<O> {
+    pub fn get_best_plan(&self) -> Option<Vec<O>> {
         self.get_plan(self.index_of_cheapest())
     }
 
@@ -460,7 +460,7 @@ mod tests {
         let outcome = AnytimePlannerBuilder::state_goal(&state, &goal)
             .verbose(4)
             .construct();
-        let plan = outcome.get_best_plan();
+        let plan = outcome.get_best_plan().unwrap();
         println!("all plans: {:?}", outcome.get_all_plans());
         println!("the plan: {:?}", &plan);
         // TODO: With the domain as stated, this is the correct low-cost plan.
@@ -563,8 +563,13 @@ where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
                 .possible_time_limit_ms(limit_ms)
                 .verbose(verbosity.unwrap_or(1))
                 .construct();
-            println!("Plan:");
-            println!("{:?}", outcome.get_best_plan());
+            match outcome.get_best_plan() {
+                Some(plan) => {
+                    println!("Plan:");
+                    println!("{:?}", plan);
+                },
+                None => println!("No plan found.")
+            };
             let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" })
                 .replace(")", "_")
                 .replace("(", "_")

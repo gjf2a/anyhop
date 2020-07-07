@@ -12,7 +12,7 @@ use std::iter::{Peekable, Skip};
 use std::env::Args;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Goal<M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
+    where S:Orderable, G:Goal<S=S,M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(0,format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks));
     let mut choices = VecDeque::new();
@@ -70,7 +70,7 @@ pub struct AnytimePlannerBuilder<'a,S,G,F>
 
 impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
     where S:Orderable, O:Operator<S=S>,
-          G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
+          G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
           C:Cost, F:?Sized + Fn(&Vec<O>) -> C {
 
     pub fn state_goal_cost(state: &S, goal: &G, cost_func: &'a F) -> Self {
@@ -112,16 +112,17 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
 
 impl <'a,S,G,O,M> AnytimePlannerBuilder<'a,S,G,dyn Fn(&Vec<O>) -> usize>
     where S:Orderable, O:Operator<S=S>,
-          G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O> {
+          G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
 
     pub fn state_goal(state: &S, goal: &G) -> Self {
         AnytimePlannerBuilder::state_goal_cost(state, goal, &|v| v.len())
     }
 }
 
-pub struct AnytimePlanner<S,O, M,C>
+pub struct AnytimePlanner<S,O,M,C>
     where S:Orderable, O:Operator, M:Method, C:Cost {
     plans: Vec<Vec<O>>,
+    flawed_plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
     discovery_prunes: Vec<usize>,
     discovery_prior_plans: Vec<usize>,
@@ -133,7 +134,9 @@ pub struct AnytimePlanner<S,O, M,C>
     total_pruned: usize,
     start_time: Instant,
     total_time: Option<u128>,
-    current_step: PlannerStep<S,O,M>
+    current_step: PlannerStep<S,O,M>,
+    strategy: BacktrackStrategy,
+    apply_cutoff: bool
 }
 
 pub fn summary_csv_header() -> String {
@@ -143,14 +146,14 @@ pub fn summary_csv_header() -> String {
 impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     where S:Orderable, O:Operator<S=S>,
           C:Cost,
-          G:Goal<M=M,O=O>,
+          G:Goal<S=S,M=M,O=O>,
           M:Method<S=S,G=G,O=O> {
     fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
             total_pops: 0, total_pushes: 0, total_pruned: 0, start_time: Instant::now(),
-            total_time: None,
+            total_time: None, strategy, apply_cutoff, flawed_plans: Vec::new(),
             current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
@@ -211,7 +214,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
             self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
-            self.add_plan(self.current_step.plan.clone(), cost);
+            self.add_plan(self.current_step.plan.clone(), goal, cost);
             (true, strategy.next())
         } else {
             for option in self.current_step.get_next_step(goal) {
@@ -222,14 +225,19 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn add_plan(&mut self, plan: Vec<O>, cost: C) {
+    fn add_plan(&mut self, plan: Vec<O>, goal: &G, cost: C) {
         self.costs.push(cost);
         let time = self.time_since_start();
         self.discovery_times.push(time);
         self.discovery_prunes.push(self.total_pruned);
         self.discovery_prior_plans.push(self.plans.len());
-        self.plans.push(plan);
-        self.current_step.verb(0,format!("Plan found. Cost: {:?}; Time: {}", cost, time));
+        if goal.accepts(&self.current_step.state) {
+            self.plans.push(plan);
+            self.current_step.verb(0, format!("Plan found. Cost: {:?}; Time: {}", cost, time));
+        } else {
+            self.flawed_plans.push(plan);
+            self.current_step.verb(0, format!("Plan found, but goals are not met. Cost: {:?}; Time: {}", cost, time));
+        }
     }
 
     fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
@@ -256,6 +264,10 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
 
     pub fn get_all_plans(&self) -> Vec<Vec<O>> {
         self.plans.clone()
+    }
+
+    pub fn get_flawed_plans(&self) -> Vec<Vec<O>> {
+        self.flawed_plans.clone()
     }
 
     fn plan_data(&self, p: usize) -> (u128,usize,usize,usize) {
@@ -323,9 +335,22 @@ pub trait Method : Atom {
 }
 
 pub trait Goal : Clone {
-    type O: Operator;
+    type O: Operator<S=Self::S>;
     type M: Atom;
+    type S: Clone;
+
     fn starting_tasks(&self) -> Vec<Task<Self::O,Self::M>>;
+    fn accepts(&self, state: &Self::S) -> bool;
+
+    fn plan_valid(&self, start: &Self::S, plan: &Vec<Self::O>) -> bool {
+        let mut state = start.clone();
+        for op in plan.iter() {
+            if !op.attempt_update(&mut state) {
+                return false;
+            }
+        }
+        self.accepts(&state)
+    }
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -346,7 +371,7 @@ where S:Orderable, O:Operator, M:Method {
 }
 
 impl <S,O,G,M> PlannerStep<S,O,M>
-    where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O> {
+    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
 
     pub fn new(state: &S, tasks: &Vec<Task<O,M>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0}
@@ -390,7 +415,9 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         let mut planner_steps = Vec::new();
         match candidate.apply(&self.state, goal) {
             MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
-            MethodResult::Failure => { self.verb(3,format!("No plan found by method {:?}", candidate)); },
+            MethodResult::Failure => {
+                self.verb(3,format!("No plan found by method {:?}", candidate));
+            },
             MethodResult::TaskLists(subtask_alternatives) => {
                 self.verb(3,format!("{} alternative subtask lists", subtask_alternatives.len()));
                 for subtasks in subtask_alternatives.iter() {
@@ -477,7 +504,7 @@ mod tests {
 // Experiment harness functions
 
 pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
-    where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
+    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
           P: Fn(&str) -> io::Result<(S, G)> {
     let mut results = summary_csv_header();
     let mut args_iter = env::args().skip(1).peekable();
@@ -492,11 +519,11 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
                 let entry = entry.to_str();
                 let entry_name = entry.unwrap();
                 if entry_name.starts_with(no_star.as_str()) {
-                    assess_file(entry_name, &mut results, limit_ms, verbosity, parser)?;
+                    FileAssessor::assess_file(entry_name, &mut results, limit_ms, verbosity, parser)?;
                 }
             }
         } else {
-            assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
+            FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
         }
     }
     let mut output = File::create("results.csv")?;
@@ -548,42 +575,71 @@ fn extract_arg_num<N: std::str::FromStr>(arg: &str) -> Option<N> {
     }
 }
 
-fn assess_file<S,O,G,M,P>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()>
-where S:Orderable, O:Operator<S=S>, G:Goal<M=M,O=O>, M:Method<S=S,G=G,O=O>,
-      P: Fn(&str) -> io::Result<(S, G)> {
-    use crate::BacktrackStrategy::{Alternate, Steady};
-    use crate::BacktrackPreference::{LeastRecent, MostRecent};
-    println!("Running {}", file);
-    let (start, goal) = parser(file)?;
-    for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
-        for apply_cutoff in vec![true, false] {
-            let outcome = AnytimePlannerBuilder::state_goal(&start, &goal)
-                .apply_cutoff(apply_cutoff)
-                .strategy(strategy)
-                .possible_time_limit_ms(limit_ms)
-                .verbose(verbosity.unwrap_or(1))
-                .construct();
-            match outcome.get_best_plan() {
-                Some(plan) => {
-                    println!("Plan:");
-                    println!("{:?}", plan);
-                    let label = format!("o_{}_{:?}_{}", desuffix(file), strategy, if apply_cutoff { "cutoff" } else { "no_cutoff" })
-                        .replace(")", "_")
-                        .replace("(", "_")
-                        .replace("/", "_")
-                        .replace("\\", "_")
-                        .replace(":", "_");
-                    let row = outcome.summary_csv_row(label.as_str());
-                    print!("{}", row);
-                    results.push_str(row.as_str());
-                    let mut output = File::create(format!("{}.csv", label))?;
-                    write!(output, "{}", outcome.instance_csv())?;
-                },
-                None => println!("No plan found.")
-            };
+pub struct FileAssessor<S,O,G,M> where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>{
+    file: String,
+    results: String,
+    outcome: AnytimePlanner<S,O,M,usize>
+}
+
+impl <S,O,G,M> FileAssessor<S,O,G,M>
+    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
+    fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
+        use crate::BacktrackStrategy::{Alternate, Steady};
+        use crate::BacktrackPreference::{LeastRecent, MostRecent};
+        println!("Running {}", file);
+        let (start, goal) = parser(file)?;
+        for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
+            for apply_cutoff in vec![true, false] {
+                let mut assessor = FileAssessor {
+                    file: String::from(file), results: String::new(),
+                    outcome: AnytimePlannerBuilder::state_goal(&start, &goal)
+                        .apply_cutoff(apply_cutoff)
+                        .strategy(strategy)
+                        .possible_time_limit_ms(limit_ms)
+                        .verbose(verbosity.unwrap_or(1))
+                        .construct()
+                };
+                assessor.report()?;
+                results.push_str(assessor.results.as_str());
+            }
         }
+        Ok(())
     }
-    Ok(())
+
+    fn report(&mut self) -> io::Result<()> {
+        match self.outcome.get_best_plan() {
+            Some(plan) => {
+                self.plan_report(&plan)?;
+            },
+            None => println!("No plan found.")
+        };
+        let flawed = self.outcome.get_flawed_plans();
+        if flawed.len() > 0 {
+            println!("{} flawed plans found.", flawed.len());
+            for i in 0..flawed.len() {
+                println!("Flawed plan {}", i + 1);
+                println!("{:?}", flawed[i]);
+            }
+        }
+        Ok(())
+    }
+
+    fn plan_report(&mut self, plan: &Vec<O>) -> io::Result<()> {
+        println!("Plan:");
+        println!("{:?}", plan);
+        let label = format!("o_{}_{:?}_{}", desuffix(self.file.as_str()), self.outcome.strategy, if self.outcome.apply_cutoff { "cutoff" } else { "no_cutoff" })
+            .replace(")", "_")
+            .replace("(", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(":", "_");
+        let row = self.outcome.summary_csv_row(label.as_str());
+        print!("{}", row);
+        self.results.push_str(row.as_str());
+        let mut output = File::create(format!("{}.csv", label))?;
+        write!(output, "{}", self.outcome.instance_csv())?;
+        Ok(())
+    }
 }
 
 fn desuffix(filename: &str) -> String {

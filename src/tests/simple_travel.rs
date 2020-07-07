@@ -84,6 +84,10 @@ impl<T:Atom, L:Atom> TravelState<T,L> {
         self.loc.get(&traveler).map(|l| *l)
     }
 
+    pub fn at(&self, traveler: T, location: L) -> bool {
+        self.get_location(traveler).map_or(false, |l| l == location)
+    }
+
     pub fn add_traveler(&mut self, traveler: T, cash: Decimal, start: L) {
         self.loc.insert(traveler, start);
         self.cash.insert(traveler, cash);
@@ -140,11 +144,16 @@ pub struct TravelGoal<T:Atom,L:Atom> {
 impl <T:Atom,L:Atom> Goal for TravelGoal<T,L> {
     type O = CityOperator<T,L>;
     type M = CityMethod<T,L>;
+    type S = TravelState<T,L>;
 
     fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethod<T,L>>> {
         self.goals.iter()
             .map(|(t, goal)| Task::Method(CityMethod::Travel(*t, *goal)))
             .collect()
+    }
+
+    fn accepts(&self, state: &Self::S) -> bool {
+        self.goals.iter().all(|(traveler, goal)| state.at(*traveler, *goal))
     }
 }
 

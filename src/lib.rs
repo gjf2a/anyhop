@@ -334,7 +334,7 @@ pub trait Method : Atom {
     fn apply(&self, state: &Self::S, goal: &Self::G) -> MethodResult<Self::O, Self>;
 }
 
-pub trait Goal : Clone {
+pub trait Goal : Clone + Debug {
     type O: Operator<S=Self::S>;
     type M: Atom;
     type S: Clone;
@@ -588,6 +588,8 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
         println!("Running {}", file);
         let (start, goal) = parser(file)?;
+        println!("Start state: {:?}", start);
+        println!("Goal: {:?}", goal);
         for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
             for apply_cutoff in vec![true, false] {
                 let mut assessor = FileAssessor {

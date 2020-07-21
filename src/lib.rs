@@ -443,7 +443,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
 
     fn verb(&self, level: usize, text: String) {
         if self.verbose > level {
-            println!("{}", text);
+            debug!("{}", text); //This should be set to debug, not info, as to not spam the log with tasks on verbosity level 2.
         }
     }
 }
@@ -471,7 +471,7 @@ mod tests {
         let goal = TravelGoal::new(vec![('M', Park)]);
         let tasks = goal.starting_tasks();
         let plan = find_first_plan(&state, &goal, &tasks, 3).unwrap();
-        println!("the plan: {:?}", &plan);
+        info!("the plan: {:?}", &plan);
         assert_eq!(plan, vec![(CallTaxi('M')), (RideTaxi('M', Home, Park)), (Pay('M'))]);
     }
 
@@ -487,8 +487,8 @@ mod tests {
             .verbose(4)
             .construct();
         let plan = outcome.get_best_plan().unwrap();
-        println!("all plans: {:?}", outcome.get_all_plans());
-        println!("the plan: {:?}", &plan);
+        info!("all plans: {:?}", outcome.get_all_plans());
+        info!("the plan: {:?}", &plan);
         // TODO: With the domain as stated, this is the correct low-cost plan.
         //  To make the test more interesting, we should have a cost function
         //  that uses a time metric. That cost function would no doubt prefer
@@ -505,6 +505,7 @@ mod tests {
 pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P, args: &CmdArgs) -> io::Result<()>
     where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
           P: Fn(&str) -> io::Result<(S, G)> {
+
     let mut results = summary_csv_header();
     let (limit_ms, verbosity) = find_time_limit_and_verbosity(args);
     for file in args.all_filenames().iter() {
@@ -619,10 +620,10 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
         use crate::BacktrackStrategy::{Alternate, Steady};
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
-        println!("Running {}", file);
+        info!("Running {}", file);
         let (start, goal) = parser(file)?;
-        println!("Start state: {:?}", start);
-        println!("Goal: {:?}", goal);
+        debug!("Start state: {:?}", start);
+        debug!("Goal: {:?}", goal);
         for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
             for apply_cutoff in vec![true, false] {
                 let mut assessor = FileAssessor {
@@ -646,22 +647,22 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
             Some(plan) => {
                 self.plan_report(&plan)?;
             },
-            None => println!("No plan found.")
+            None => warn!("No plan found.")
         };
         let flawed = self.outcome.get_flawed_plans();
         if flawed.len() > 0 {
-            println!("{} flawed plans found.", flawed.len());
+            warn!("{} flawed plans found.", flawed.len());
             for i in 0..flawed.len() {
-                println!("Flawed plan {}", i + 1);
-                println!("{:?}", flawed[i]);
+                warn!("Flawed plan {}", i + 1);
+                warn!("{:?}", flawed[i]);
             }
         }
         Ok(())
     }
 
     fn plan_report(&mut self, plan: &Vec<O>) -> io::Result<()> {
-        println!("Plan:");
-        println!("{:?}", plan);
+        info!("Plan:");
+        info!("{:?}", plan);
         let label = format!("o_{}_{:?}_{}", desuffix(self.file.as_str()), self.outcome.strategy, if self.outcome.apply_cutoff { "cutoff" } else { "no_cutoff" })
             .replace(")", "_")
             .replace("(", "_")
@@ -669,7 +670,7 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
             .replace("\\", "_")
             .replace(":", "_");
         let row = self.outcome.summary_csv_row(label.as_str());
-        print!("{}", row);
+        info!("{}", row);
         self.results.push_str(row.as_str());
         let mut output = File::create(format!("{}.csv", label))?;
         write!(output, "{}", self.outcome.instance_csv())?;

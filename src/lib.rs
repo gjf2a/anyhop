@@ -520,6 +520,7 @@ pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P, args: &CmdArgs) -> io::Resul
     Ok(())
 }
 
+#[derive(Debug,Clone)]
 pub struct CmdArgs {
     options: BTreeMap<String,String>,
     filenames: Vec<String>
@@ -610,7 +611,7 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
         println!("\t\t\tNew state");
         println!("\t\t\tAlternative task lists");
     }
-    (args.num_from("s").map(|s: u128| s * 1000), args.num_from("t"))
+    (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
 }
 
 pub struct FileAssessor<S,O,G,M> where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>{

@@ -1,15 +1,14 @@
 #![feature(trait_alias)]
+mod reflective_searcher;
 
 use immutable_map::TreeSet;
 use std::fmt::Debug;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, BTreeMap};
 use std::time::Instant;
 use num_traits::Num;
 use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
-use std::iter::{Peekable, Skip};
-use std::env::Args;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<S=S,M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
@@ -503,76 +502,110 @@ mod tests {
 
 // Experiment harness functions
 
-pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P) -> io::Result<()>
+pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P, args: &CmdArgs) -> io::Result<()>
     where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
           P: Fn(&str) -> io::Result<(S, G)> {
     let mut results = summary_csv_header();
-    let mut args_iter = env::args().skip(1).peekable();
-    let (limit_ms, verbosity) = find_time_limit_and_verbosity(&mut args_iter);
-    for file in args_iter {
-        if file.ends_with("*") {
-            let mut no_star = file.clone();
-            no_star.pop();
-            for entry in fs::read_dir(".")? {
-                let entry = entry?;
-                let entry = entry.file_name();
-                let entry = entry.to_str();
-                let entry_name = entry.unwrap();
-                if entry_name.starts_with(no_star.as_str()) {
-                    FileAssessor::assess_file(entry_name, &mut results, limit_ms, verbosity, parser)?;
-                }
-            }
-        } else {
-            FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
-        }
+    let (limit_ms, verbosity) = find_time_limit_and_verbosity(args);
+    for file in args.all_filenames().iter() {
+        FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
     }
     let mut output = File::create("results.csv")?;
     write!(output, "{}", results.as_str())?;
     Ok(())
 }
 
-fn find_time_limit_and_verbosity(args_iter: &mut Peekable<Skip<Args>>) -> (Option<u128>,Option<usize>) {
-    let mut limit_ms = None;
-    let mut verbosity = None;
-    while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
-        let arg = args_iter.next().unwrap_or(String::from("-"));
-        let arg = arg.as_str();
-        if arg_matches(arg, "s") {
-            limit_ms = extract_arg_num(arg).map(|n: u128| n * 1000);
-        } else if arg_matches(arg, "v") {
-            verbosity = extract_arg_num(arg);
-        } else if arg.starts_with("-h") {
-            println!("Usage: planner [-h] [-(int)s] [[(int)v] plan_files");
-            println!("\t-h: This message");
-            println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
-            println!("\t-(int)v: Verbosity (0-4)");
-            println!("\t\t-0v: Reports final plan only");
-            println!("\t\t-1v: Reports plan found, time limit reached, no more plans to be found");
-            println!("\t\t-2v: Reports branch-and-bound pruning");
-            println!("\t\t-3v: Reports tasks at each depth level reached");
-            println!("\t\t-4v: Reports the following at each new depth level:");
-            println!("\t\t\tPlan found");
-            println!("\t\t\tFailure");
-            println!("\t\t\tPruning due to cycle");
-            println!("\t\t\tNew state");
-            println!("\t\t\tAlternative task lists");
+pub struct CmdArgs {
+    options: BTreeMap<String,String>,
+    filenames: Vec<String>
+}
+
+impl CmdArgs {
+    pub fn new() -> io::Result<Self> {
+        let mut result = CmdArgs {options: BTreeMap::new(), filenames: Vec::new()};
+        let mut args_iter = env::args().skip(1).peekable();
+        while args_iter.peek().map_or(false, |s| s.starts_with("-")) {
+            let arg = args_iter.next().unwrap();
+            if let Some(tag) = CmdArgs::arg_tag(arg.as_str()) {
+                result.options.insert(tag, arg);
+            }
+        }
+        for file in args_iter {
+            if file.ends_with("*") {
+                let mut no_star = file.clone();
+                no_star.pop();
+                for entry in fs::read_dir(".")? {
+                    let entry = entry?;
+                    let entry = entry.file_name();
+                    let entry = entry.to_str();
+                    let entry_name = entry.unwrap();
+                    if entry_name.starts_with(no_star.as_str()) {
+                        result.filenames.push(String::from(entry_name));
+                    }
+                }
+            } else {
+                result.filenames.push(file);
+            }
+        }
+        Ok(result)
+    }
+
+    fn arg_tag(arg: &str) -> Option<String> {
+        if arg.len() >= 2 && arg.starts_with("-") {
+            Some(arg.chars().skip_while(|c| !c.is_alphabetic()).collect())
         } else {
-            println!("Unrecognized argument: {}", arg);
+            None
         }
     }
-    (limit_ms, verbosity)
-}
 
-fn arg_matches(arg: &str, end: &str) -> bool {
-    arg.starts_with("-") && arg.ends_with(end) && arg.len() > 2
-}
-
-fn extract_arg_num<N: std::str::FromStr>(arg: &str) -> Option<N> {
-    let num = &arg[1..arg.len() - 1];
-    match num.parse::<N>() {
-        Ok(num) => Some(num),
-        Err(_) => {println!("{} is not valid", num); None}
+    pub fn get_with_tag(&self, arg_tag: &str) -> Option<&String> {
+        self.options.get(arg_tag)
     }
+
+    pub fn has_tag(&self, arg_tag: &str) -> bool {
+        self.options.contains_key(arg_tag)
+    }
+
+    pub fn num_from<N: std::str::FromStr>(&self, arg_tag: &str) -> Option<N> {
+        match self.options.get(arg_tag) {
+            Some(arg) => {
+                let num = &arg[1..arg.len() - 1];
+                match num.parse::<N>() {
+                    Ok(num) => Some(num),
+                    Err(_) => {println!("{} is not valid", num); None}
+                }
+            },
+            None => None
+        }
+    }
+
+    pub fn all_filenames(&self) -> &Vec<String> {
+        &self.filenames
+    }
+
+    pub fn all_options(&self) -> Vec<String> {
+        self.options.iter().map(|(_,v)| v.clone()).collect()
+    }
+}
+
+fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>) {
+    if args.has_tag("h") || args.has_tag("help") {
+        println!("Usage: planner [-h] [-(int)s] [[(int)v] plan_files");
+        println!("\t-h: This message");
+        println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
+        println!("\t-(int)v: Verbosity (0-4)");
+        println!("\t\t-0v: Reports final plan only");
+        println!("\t\t-1v: Reports plan found, time limit reached, no more plans to be found");
+        println!("\t\t-2v: Reports branch-and-bound pruning");
+        println!("\t\t-3v: Reports tasks at each depth level reached");
+        println!("\t\t-4v: Reports the following at each new depth level:");
+        println!("\t\t\tPlan found");
+        println!("\t\t\tFailure");
+        println!("\t\t\tPruning due to cycle");
+        println!("\t\t\tNew state");
+        println!("\t\t\tAlternative task lists");
+    }
+    (args.num_from("s"), args.num_from("t"))
 }
 
 pub struct FileAssessor<S,O,G,M> where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>{

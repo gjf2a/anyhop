@@ -446,7 +446,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
 
     fn verb(&self, level: usize, text: String) {
         if self.verbose > level {
-            info!("{}", text);
+            debug!("{}", text); //This should be set to debug, not info, as to not spam the log with tasks on verbosity level 2.
         }
     }
 }

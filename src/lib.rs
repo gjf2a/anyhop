@@ -631,7 +631,7 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
         use crate::BacktrackStrategy::{Alternate, Steady};
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
-        println!("assess_file({}): verbosity: {:?}", file, verbosity);
+        println!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
         let (start, goal) = parser(file)?;
         debug!("Start state: {:?}", start);

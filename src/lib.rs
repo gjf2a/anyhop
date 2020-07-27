@@ -615,6 +615,7 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
     }
     if args.has_tag("c") {
         println!("CmdArgs: {:?}", args);
+        println!("verbosity: {:?}; limit: {:?}", args.num_from::<usize>("s"), args.num_from::<usize>("v"));
     }
     (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
 }

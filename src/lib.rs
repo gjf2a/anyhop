@@ -86,13 +86,13 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
 
     pub fn verbose(&'a mut self, verbose: usize) -> &'a mut Self {
         self.verbose = verbose;
-        debug!("Setting verbosity to {}", verbose);
+        println!("Setting verbosity to {}", verbose); // TODO: Remove
         self
     }
 
     pub fn time_limit_ms(&'a mut self, time_limit_ms: u128) -> &'a mut Self {
         self.time_limit_ms = Some(time_limit_ms);
-        debug!("Setting time limit to {}", time_limit_ms);
+        println!("Setting time limit to {}", time_limit_ms); // TODO: Remove
         self
     }
 
@@ -155,7 +155,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
           G:Goal<S=S,M=M,O=O>,
           M:Method<S=S,G=G,O=O> {
     fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
-        debug!("Received time limit {:?} and verbosity {:?}", time_limit_ms, verbose);
+        println!("AnytimePlanner::plan(): Received time limit {:?} and verbosity {:?}", time_limit_ms, verbose); // TODO: Remove
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,

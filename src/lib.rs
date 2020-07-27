@@ -163,6 +163,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             total_time: None, strategy, apply_cutoff, flawed_plans: Vec::new(),
             current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
+        println!("current step verbosity: {:?}", outcome.current_step.verbose); // TODO: Remove
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
         outcome
     }

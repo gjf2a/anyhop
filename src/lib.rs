@@ -86,11 +86,13 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
 
     pub fn verbose(&'a mut self, verbose: usize) -> &'a mut Self {
         self.verbose = verbose;
+        debug!("Setting verbosity to {}", verbose);
         self
     }
 
     pub fn time_limit_ms(&'a mut self, time_limit_ms: u128) -> &'a mut Self {
         self.time_limit_ms = Some(time_limit_ms);
+        debug!("Setting time limit to {}", time_limit_ms);
         self
     }
 
@@ -153,6 +155,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
           G:Goal<S=S,M=M,O=O>,
           M:Method<S=S,G=G,O=O> {
     fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+        debug!("Received time limit {:?} and verbosity {:?}", time_limit_ms, verbose);
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
@@ -631,7 +634,7 @@ impl <S,O,G,M> FileAssessor<S,O,G,M>
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
         use crate::BacktrackStrategy::{Alternate, Steady};
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
-        println!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
+        debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
         let (start, goal) = parser(file)?;
         debug!("Start state: {:?}", start);

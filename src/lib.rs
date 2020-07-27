@@ -597,8 +597,9 @@ impl CmdArgs {
 
 fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>) {
     if args.has_tag("h") || args.has_tag("help") {
-        println!("Usage: planner [-h] [-(int)s] [[(int)v] plan_files");
+        println!("Usage: planner [-h] [-(int)s] [[-(int)v] plan_files");
         println!("\t-h: This message");
+        println!("\t-c: See command-line argument data structure");
         println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
         println!("\t-(int)v: Verbosity (0-4)");
         println!("\t\t-0v: Reports final plan only");
@@ -611,6 +612,9 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
         println!("\t\t\tPruning due to cycle");
         println!("\t\t\tNew state");
         println!("\t\t\tAlternative task lists");
+    }
+    if args.has_tag("c") {
+        println!("CmdArgs: {:?}", args);
     }
     (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
 }

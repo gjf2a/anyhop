@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::Cost;
 
 #[derive(Debug,Clone)]
-struct MultiStageQueue<C:Cost,T> {
+pub struct MultiStageQueue<C:Cost,T> {
     backtrack_stack: Vec<T>,
     holding_area: Vec<T>,
     prioritized: BTreeMap<C,Vec<T>>

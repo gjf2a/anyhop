@@ -25,6 +25,10 @@ impl <C:Cost,T> MultiStageQueue<C,T> {
         self.backtrack_stack.len() + self.holding_area.len() + num_in_heap
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn insert(&mut self, obj: T) {
         self.backtrack_stack.push(obj);
     }

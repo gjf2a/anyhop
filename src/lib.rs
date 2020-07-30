@@ -14,6 +14,7 @@ use num_traits::Num;
 use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
+use reflective_searcher::MultiStageQueue;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<S=S,M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
@@ -138,8 +139,8 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     }
 
     fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, apply_cutoff: bool) {
-        let mut choices = VecDeque::new();
-        let mut backtrack = (false, strategy);
+        let mut choices = MultiStageQueue::new();
+        let mut backtrack = false;
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
         self.current_step.verb(1, format!("Backtrack strategy: {:?}", strategy));
@@ -150,9 +151,9 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
                 let time = self.time_since_start();
                 self.total_pruned += 1;
                 self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
-                (true, backtrack.1)
+                true
             } else {
-                self.add_choices(goal, backtrack.1, &mut choices, cost_func)
+                self.add_choices(goal, &mut choices, cost_func)
             };
             if choices.is_empty() {
                 self.set_total_time();
@@ -164,7 +165,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
                 self.current_step.verb(0,format!("Time's up! {:?} ms elapsed", time_limit_ms));
                 break;
             } else {
-                self.pick_choice(backtrack, &mut choices);
+                self.pick_choice(backtrack, strategy, &mut choices);
             }
         }
     }
@@ -188,19 +189,19 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackPreference, choices: &mut VecDeque<PlannerStep<S,O,M>>, cost_func: &F) -> (bool,BacktrackPreference) {
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, choices: &mut MultiStageQueue<C,PlannerStep<S,O,M>>, cost_func: &F) -> bool {
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
             self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
             self.add_plan(self.current_step.plan.clone(), goal, cost);
-            (true, strategy)
+            true
         } else {
             for option in self.current_step.get_next_step(goal) {
-                choices.push_back(option);
+                choices.insert(option);
                 self.total_pushes += 1;
             }
-            (false, strategy)
+            false
         }
     }
 
@@ -219,12 +220,14 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: (bool, BacktrackPreference), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
-        self.current_step = if backtrack.0 && backtrack.1 == BacktrackPreference::LeastRecent {
-            choices.pop_front()
-        } else {
-            choices.pop_back()
-        }.unwrap();
+    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut MultiStageQueue<C,PlannerStep<S,O,M>>) {
+        if backtrack {
+            match strategy {
+                BacktrackPreference::LeastRecent => choices.to_heap_bfs(),
+                _ => {}
+            }
+        }
+        self.current_step = choices.remove().unwrap();
         self.total_pops += 1;
     }
 

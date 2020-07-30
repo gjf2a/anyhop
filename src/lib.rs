@@ -141,6 +141,8 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         let mut choices = VecDeque::new();
         let mut backtrack = (false, strategy);
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
+        self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
+        self.current_step.verb(1, format!("Backtrack strategy: {:?}", strategy));
         self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
@@ -432,11 +434,13 @@ impl <S,O,G,M> PlannerStep<S,O,M>
 
 #[cfg(test)]
 mod tests {
-    use crate::{find_first_plan, Atom, Goal, AnytimePlannerBuilder};
+    use crate::{find_first_plan, Atom, Goal, AnytimePlannerBuilder, BacktrackPreference};
     use rust_decimal_macros::*;
     use locations::LocationGraph;
+    use crate::tests::simple_tsp::{TSPGoal, TSPState};
 
     mod simple_travel;
+    mod simple_tsp;
 
     #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
     enum Location {
@@ -479,6 +483,39 @@ mod tests {
         //  very little of it.
         //  But all this is not worth it right now.
         assert_eq!(plan, vec![Walk('M', Home, Park)]);
+    }
+
+    fn make_tsp_1() -> TSPGoal {
+        TSPGoal::new(vec![(0, 1, 1), (0, 2, 2), (1, 2, 3)])
+    }
+
+    fn simple_order_test(pref: BacktrackPreference, target_result: &str) {
+        start_logger();
+        let goal = make_tsp_1();
+        let state = TSPState::new(&goal);
+        let outcome = AnytimePlannerBuilder::state_goal(&state, &goal)
+            .strategy(pref)
+            .verbose(4)
+            .apply_cutoff(false)
+            .construct();
+        assert_eq!(format!("{:?}", outcome.get_all_plans()).as_str(), target_result);
+    }
+
+    #[test]
+    fn test_dfs() {
+        simple_order_test(BacktrackPreference::MostRecent, r#"[[TSPMove { end: 2 }, TSPMove { end: 1 }, TSPMove { end: 0 }], [TSPMove { end: 2 }, TSPMove { end: 0 }, TSPMove { end: 1 }], [TSPMove { end: 1 }, TSPMove { end: 2 }, TSPMove { end: 0 }], [TSPMove { end: 1 }, TSPMove { end: 0 }, TSPMove { end: 2 }], [TSPMove { end: 0 }, TSPMove { end: 2 }, TSPMove { end: 1 }], [TSPMove { end: 0 }, TSPMove { end: 1 }, TSPMove { end: 2 }]]"#);
+    }
+
+    #[test]
+    fn test_bfs() {
+        simple_order_test(BacktrackPreference::LeastRecent, r#"[[TSPMove { end: 2 }, TSPMove { end: 1 }, TSPMove { end: 0 }], [TSPMove { end: 0 }, TSPMove { end: 2 }, TSPMove { end: 1 }], [TSPMove { end: 1 }, TSPMove { end: 2 }, TSPMove { end: 0 }], [TSPMove { end: 2 }, TSPMove { end: 0 }, TSPMove { end: 1 }], [TSPMove { end: 0 }, TSPMove { end: 1 }, TSPMove { end: 2 }], [TSPMove { end: 1 }, TSPMove { end: 0 }, TSPMove { end: 2 }]]"#);
+    }
+
+    fn start_logger() {
+        match simple_logger::init() {
+            Err(_)=> {},
+            _ => {}
+        }
     }
 }
 

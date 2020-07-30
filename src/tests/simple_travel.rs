@@ -62,7 +62,7 @@ pub struct TravelState<T,L:Atom> {
     cash: BTreeMap<T,Decimal>,
     owe: BTreeMap<T,Decimal>,
     taxi: L,
-    dist: LocationGraph<L>
+    dist: LocationGraph<L,usize>
 }
 
 pub fn fare(dist: usize) -> Decimal {
@@ -70,7 +70,7 @@ pub fn fare(dist: usize) -> Decimal {
 }
 
 impl<T:Atom, L:Atom> TravelState<T,L> {
-    pub fn new(dist: LocationGraph<L>, taxi_stand: L) -> Self {
+    pub fn new(dist: LocationGraph<L,usize>, taxi_stand: L) -> Self {
         TravelState {
             loc: BTreeMap::new(), cash: BTreeMap::new(), owe: BTreeMap::new(),
             dist: dist, taxi: taxi_stand}

@@ -86,13 +86,11 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
 
     pub fn verbose(&'a mut self, verbose: usize) -> &'a mut Self {
         self.verbose = verbose;
-        println!("Setting verbosity to {}", verbose); // TODO: Remove
         self
     }
 
     pub fn time_limit_ms(&'a mut self, time_limit_ms: u128) -> &'a mut Self {
         self.time_limit_ms = Some(time_limit_ms);
-        println!("Setting time limit to {}", time_limit_ms); // TODO: Remove
         self
     }
 
@@ -155,7 +153,6 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
           G:Goal<S=S,M=M,O=O>,
           M:Method<S=S,G=G,O=O> {
     fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
-        println!("AnytimePlanner::plan(): Received time limit {:?} and verbosity {:?}", time_limit_ms, verbose); // TODO: Remove
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
@@ -163,7 +160,6 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             total_time: None, strategy, apply_cutoff, flawed_plans: Vec::new(),
             current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
-        println!("current step verbosity: {:?}", outcome.current_step.verbose); // TODO: Remove
         outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
         outcome
     }
@@ -330,7 +326,6 @@ pub trait Operator : Atom {
 }
 
 pub enum MethodResult<O:Atom,T:Atom> {
-    PlanFound,
     TaskLists(Vec<Vec<Task<O,T>>>),
     Failure
 }
@@ -422,15 +417,20 @@ impl <S,O,G,M> PlannerStep<S,O,M>
     fn apply_method(&self, candidate: M, goal: &G) -> Vec<Self> {
         let mut planner_steps = Vec::new();
         match candidate.apply(&self.state, goal) {
-            MethodResult::PlanFound => planner_steps.push(self.method_planner_step(&vec![])),
             MethodResult::Failure => {
                 self.verb(3,format!("No plan found by method {:?}", candidate));
             },
             MethodResult::TaskLists(subtask_alternatives) => {
-                self.verb(3,format!("{} alternative subtask lists", subtask_alternatives.len()));
-                for subtasks in subtask_alternatives.iter() {
-                    self.verb(3,format!("depth {} new tasks: {:?}", self.depth, subtasks));
-                    planner_steps.push(self.method_planner_step(subtasks));
+                let num_alternatives = subtask_alternatives.len();
+                if num_alternatives > 0 {
+                    self.verb(3, format!("{} alternative subtask lists", num_alternatives));
+                    for subtasks in subtask_alternatives.iter() {
+                        self.verb(3, format!("depth {} new tasks: {:?}", self.depth, subtasks));
+                        planner_steps.push(self.method_planner_step(subtasks));
+                    }
+                } else {
+                    self.verb(3, format!("Plan found"));
+                    planner_steps.push(self.method_planner_step(&vec![]));
                 }
             }
         }
@@ -601,7 +601,7 @@ impl CmdArgs {
 
 fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>) {
     if args.has_tag("h") || args.has_tag("help") {
-        println!("Usage: planner [-h] [-(int)s] [[-(int)v] plan_files");
+        println!("Usage: planner [-h] [-c] [-(int)s] [[-(int)v] plan_files");
         println!("\t-h: This message");
         println!("\t-c: See command-line argument data structure");
         println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
@@ -619,7 +619,7 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
     }
     if args.has_tag("c") {
         println!("CmdArgs: {:?}", args);
-        println!("verbosity: {:?}; limit: {:?}", args.num_from::<usize>("s"), args.num_from::<usize>("v"));
+        println!("verbosity: {:?}; limit: {:?}", args.num_from::<usize>("v"), args.num_from::<usize>("s"));
     }
     (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
 }

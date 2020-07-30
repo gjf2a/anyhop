@@ -2,27 +2,23 @@
 //
 // This data structure supports the algorithm in my research notebook.
 
-// I need to start by creating an API and unit tests.
-
 use std::collections::BTreeMap;
 use crate::Cost;
 
 #[derive(Debug,Clone)]
-pub struct MultiStageQueue<C:Cost,T> {
+pub struct TwoStageQueue<C:Cost,T> {
     backtrack_stack: Vec<T>,
-    holding_area: Vec<T>,
     prioritized: BTreeMap<C,Vec<T>>
 }
 
-impl <C:Cost,T> MultiStageQueue<C,T> {
+impl <C:Cost,T> TwoStageQueue<C,T> {
     pub fn new() -> Self {
-        MultiStageQueue {backtrack_stack: Vec::new(), holding_area: Vec::new(),
-        prioritized: BTreeMap::new()}
+        TwoStageQueue {backtrack_stack: Vec::new(), prioritized: BTreeMap::new()}
     }
 
     pub fn len(&self) -> usize {
         let num_in_heap: usize = self.prioritized.iter().map(|(_,v)| v.len()).sum();
-        self.backtrack_stack.len() + self.holding_area.len() + num_in_heap
+        self.backtrack_stack.len() + num_in_heap
     }
 
     pub fn is_empty(&self) -> bool {
@@ -35,28 +31,19 @@ impl <C:Cost,T> MultiStageQueue<C,T> {
 
     pub fn remove(&mut self) -> Option<T> {
         if self.backtrack_stack.is_empty() {
-            if self.holding_area.is_empty() {
-                match self.prioritized.first_entry() {
-                    None => None,
-                    Some(mut entry) => {
-                        let result = entry.get_mut().pop().unwrap();
-                        if entry.get().is_empty() {
-                            entry.remove_entry();
-                        }
-                        Some(result)
+            match self.prioritized.first_entry() {
+                None => None,
+                Some(mut entry) => {
+                    let result = entry.get_mut().pop().unwrap();
+                    if entry.get().is_empty() {
+                        entry.remove_entry();
                     }
+                    Some(result)
                 }
-            } else {
-                self.holding_area.pop()
             }
         } else {
             self.backtrack_stack.pop()
         }
-    }
-
-    pub fn to_holding(&mut self) {
-        let mut moving: Vec<T> = self.backtrack_stack.drain(..).collect();
-        self.holding_area.append(&mut moving);
     }
 
     pub fn to_heap(&mut self, cost: C) {
@@ -88,11 +75,11 @@ impl <C:Cost,T> MultiStageQueue<C,T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflective_searcher::MultiStageQueue;
+    use crate::reflective_searcher::TwoStageQueue;
 
     #[test]
     fn test1() {
-        let mut m = MultiStageQueue::new();
+        let mut m = TwoStageQueue::new();
         m.insert(1);
         m.insert(2);
         m.insert(3);
@@ -100,7 +87,7 @@ mod tests {
         let three = m.remove().unwrap();
         assert_eq!(three, 3);
         assert_eq!(m.len(), 2);
-        m.to_holding();
+        m.to_heap(0);
         m.insert(30);
         m.insert(31);
         m.insert(32);
@@ -139,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_bfs() {
-        let mut m: MultiStageQueue<usize,i32> = MultiStageQueue::new();
+        let mut m: TwoStageQueue<usize,i32> = TwoStageQueue::new();
         m.insert(1);
         m.insert(2);
         m.insert(3);
@@ -153,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_dfs() {
-        let mut m: MultiStageQueue<usize,i32> = MultiStageQueue::new();
+        let mut m: TwoStageQueue<usize,i32> = TwoStageQueue::new();
         m.insert(1);
         m.insert(2);
         m.insert(3);

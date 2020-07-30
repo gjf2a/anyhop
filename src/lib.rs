@@ -14,7 +14,7 @@ use num_traits::Num;
 use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
-use reflective_searcher::MultiStageQueue;
+use reflective_searcher::TwoStageQueue;
 
 pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
     where S:Orderable, G:Goal<S=S,M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
@@ -38,7 +38,7 @@ pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, ver
 
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
 pub enum BacktrackPreference {
-    MostRecent, LeastRecent
+    MostRecent, LeastRecent, Reflective
 }
 
 pub struct AnytimePlannerBuilder<'a,S,G,F>
@@ -139,8 +139,8 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
     }
 
     fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, apply_cutoff: bool) {
-        let mut choices = MultiStageQueue::new();
-        let mut backtrack = false;
+        let mut choices = TwoStageQueue::new();
+        let mut backtrack;
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
         self.current_step.verb(1, format!("Backtrack strategy: {:?}", strategy));
@@ -189,7 +189,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, choices: &mut MultiStageQueue<C,PlannerStep<S,O,M>>, cost_func: &F) -> bool {
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M>>, cost_func: &F) -> bool {
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
@@ -220,11 +220,12 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut MultiStageQueue<C,PlannerStep<S,O,M>>) {
+    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M>>) {
         if backtrack {
             match strategy {
+                BacktrackPreference::MostRecent => {},
                 BacktrackPreference::LeastRecent => choices.to_heap_bfs(),
-                _ => {}
+                BacktrackPreference::Reflective => {unimplemented!();}
             }
         }
         self.current_step = choices.remove().unwrap();

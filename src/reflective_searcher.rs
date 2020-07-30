@@ -61,6 +61,25 @@ impl <C:Cost,T> MultiStageQueue<C,T> {
             Some(v) => self.backtrack_stack.drain(..).for_each(|t| v.push(t))
         }
     }
+
+    pub fn to_heap_bfs(&mut self) {
+        use num_traits::identities::{zero, one};
+        let mut priority = self.prioritized.last_key_value()
+            .map(|pair| *(pair.0))
+            .unwrap_or(zero());
+
+        let mut items: Vec<T> = self.backtrack_stack.drain(..).collect();
+        items.drain(..).for_each(|item| {
+            priority = priority + one();
+            self.add_to_heap(item, priority)});
+    }
+
+    fn add_to_heap(&mut self, item: T, cost: C) {
+        match self.prioritized.get_mut(&cost) {
+            None => {self.prioritized.insert(cost, vec![item]);},
+            Some(v) => v.push(item)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -113,4 +132,31 @@ mod tests {
         assert_eq!(m.len(), 5);
         assert_eq!(new_best_option % 10, 1);
     }
+
+    #[test]
+    fn test_bfs() {
+        let mut m: MultiStageQueue<usize,i32> = MultiStageQueue::new();
+        m.insert(1);
+        m.insert(2);
+        m.insert(3);
+
+        m.to_heap_bfs();
+
+        assert_eq!(m.remove().unwrap(), 1);
+        assert_eq!(m.remove().unwrap(), 2);
+        assert_eq!(m.remove().unwrap(), 3);
+    }
+
+    #[test]
+    fn test_dfs() {
+        let mut m: MultiStageQueue<usize,i32> = MultiStageQueue::new();
+        m.insert(1);
+        m.insert(2);
+        m.insert(3);
+
+        assert_eq!(m.remove().unwrap(), 3);
+        assert_eq!(m.remove().unwrap(), 2);
+        assert_eq!(m.remove().unwrap(), 1);
+    }
+
 }

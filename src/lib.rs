@@ -40,35 +40,9 @@ pub enum BacktrackPreference {
     MostRecent, LeastRecent
 }
 
-#[derive(Debug,Copy,Clone,Eq,PartialEq)]
-pub enum BacktrackStrategy {
-    Steady(BacktrackPreference),
-    Alternate(BacktrackPreference)
-}
-
-impl BacktrackStrategy {
-    pub fn next(self) -> Self {
-        use BacktrackStrategy::*; use BacktrackPreference::*;
-        match self {
-            Steady(_) => self,
-            Alternate(p) => match p {
-                LeastRecent => Alternate(MostRecent),
-                MostRecent => Alternate(LeastRecent)
-            }
-        }
-    }
-
-    pub fn pref(&self) -> BacktrackPreference {
-        match self {
-            BacktrackStrategy::Steady(p) => *p,
-            BacktrackStrategy::Alternate(p) => *p
-        }
-    }
-}
-
 pub struct AnytimePlannerBuilder<'a,S,G,F>
     where S:Orderable, G:Goal, F: ?Sized {
-    state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy,
+    state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackPreference,
     cost_func: &'a F, verbose: usize, apply_cutoff: bool
 }
 
@@ -79,8 +53,7 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
 
     pub fn state_goal_cost(state: &S, goal: &G, cost_func: &'a F) -> Self {
         AnytimePlannerBuilder { state: state.clone(), goal: goal.clone(), time_limit_ms: None,
-            strategy: BacktrackStrategy::Steady(BacktrackPreference::MostRecent),
-            cost_func, verbose: 0, apply_cutoff: true
+            strategy: BacktrackPreference::MostRecent, cost_func, verbose: 0, apply_cutoff: true
         }
     }
 
@@ -104,7 +77,7 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
         self
     }
 
-    pub fn strategy(&'a mut self, strategy: BacktrackStrategy) -> &'a mut Self {
+    pub fn strategy(&'a mut self, strategy: BacktrackPreference) -> &'a mut Self {
         self.strategy = strategy;
         self
     }
@@ -139,7 +112,7 @@ pub struct AnytimePlanner<S,O,M,C>
     start_time: Instant,
     total_time: Option<u128>,
     current_step: PlannerStep<S,O,M>,
-    strategy: BacktrackStrategy,
+    strategy: BacktrackPreference,
     apply_cutoff: bool
 }
 
@@ -152,7 +125,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
           C:Cost,
           G:Goal<S=S,M=M,O=O>,
           M:Method<S=S,G=G,O=O> {
-    fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+    fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
@@ -164,7 +137,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         outcome
     }
 
-    fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackStrategy, cost_func: &F, apply_cutoff: bool) {
+    fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, apply_cutoff: bool) {
         let mut choices = VecDeque::new();
         let mut backtrack = (false, strategy);
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
@@ -175,7 +148,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
                 let time = self.time_since_start();
                 self.total_pruned += 1;
                 self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
-                (true, backtrack.1.next())
+                (true, backtrack.1)
             } else {
                 self.add_choices(goal, backtrack.1, &mut choices, cost_func)
             };
@@ -213,13 +186,13 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackStrategy, choices: &mut VecDeque<PlannerStep<S,O,M>>, cost_func: &F) -> (bool,BacktrackStrategy) {
+    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, strategy: BacktrackPreference, choices: &mut VecDeque<PlannerStep<S,O,M>>, cost_func: &F) -> (bool,BacktrackPreference) {
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
             self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
             self.add_plan(self.current_step.plan.clone(), goal, cost);
-            (true, strategy.next())
+            (true, strategy)
         } else {
             for option in self.current_step.get_next_step(goal) {
                 choices.push_back(option);
@@ -244,8 +217,8 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: (bool, BacktrackStrategy), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
-        self.current_step = if backtrack.0 && backtrack.1.pref() == BacktrackPreference::LeastRecent {
+    fn pick_choice(&mut self, backtrack: (bool, BacktrackPreference), choices: &mut VecDeque<PlannerStep<S,O,M>>) {
+        self.current_step = if backtrack.0 && backtrack.1 == BacktrackPreference::LeastRecent {
             choices.pop_front()
         } else {
             choices.pop_back()
@@ -633,14 +606,13 @@ pub struct FileAssessor<S,O,G,M> where S:Orderable, O:Operator<S=S>, G:Goal<S=S,
 impl <S,O,G,M> FileAssessor<S,O,G,M>
     where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
-        use crate::BacktrackStrategy::{Alternate, Steady};
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
         let (start, goal) = parser(file)?;
         debug!("Start state: {:?}", start);
         debug!("Goal: {:?}", goal);
-        for strategy in vec![Alternate(LeastRecent), Steady(LeastRecent), Steady(MostRecent)] {
+        for strategy in vec![LeastRecent, MostRecent] {
             for apply_cutoff in vec![true, false] {
                 let mut assessor = FileAssessor {
                     file: String::from(file), results: String::new(),

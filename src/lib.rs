@@ -538,9 +538,9 @@ pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Res
           P: Fn(&str) -> io::Result<(S, G)>, C:Cost {
 
     let mut results = summary_csv_header();
-    let (limit_ms, verbosity) = find_time_limit_and_verbosity(args);
+    let (limit_ms, verbosity, apply_cutoff) = find_time_limit_verbosity_cutoff(args);
     for file in args.all_filenames().iter() {
-        FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, parser)?;
+        FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, apply_cutoff, parser)?;
     }
     let mut output = File::create("results.csv")?;
     write!(output, "{}", results.as_str())?;
@@ -621,11 +621,12 @@ impl CmdArgs {
     }
 }
 
-fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>) {
+fn find_time_limit_verbosity_cutoff(args: &CmdArgs) -> (Option<u128>,Option<usize>,bool) {
     if args.has_tag("h") || args.has_tag("help") {
         println!("Usage: planner [-h] [-c] [-(int)s] [[-(int)v] plan_files");
         println!("\t-h: This message");
         println!("\t-c: See command-line argument data structure");
+        println!("\t-no_prune: No branch-and-bound cutoff");
         println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
         println!("\t-(int)v: Verbosity (0-4)");
         println!("\t\t-0v: Reports final plan only");
@@ -643,7 +644,7 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
         println!("CmdArgs: {:?}", args);
         println!("verbosity: {:?}; limit: {:?}", args.num_from::<usize>("v"), args.num_from::<usize>("s"));
     }
-    (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
+    (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"), !args.has_tag("no_prune"))
 }
 
 pub struct FileAssessor<S,O,G,M,C>
@@ -657,7 +658,7 @@ pub struct FileAssessor<S,O,G,M,C>
 impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O>, C:Cost {
-    fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
+    fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, apply_cutoff: bool, parser: &P) -> io::Result<()> {
         use crate::BacktrackPreference::{LeastRecent, MostRecent, Heuristic};
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
@@ -668,7 +669,7 @@ impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
             let mut assessor = FileAssessor {
                 file: String::from(file), results: String::new(),
                 outcome: AnytimePlannerBuilder::state_goal(&start, &goal)
-                    .apply_cutoff(true)
+                    .apply_cutoff(apply_cutoff)
                     .strategy(strategy)
                     .possible_time_limit_ms(limit_ms)
                     .verbose(verbosity.unwrap_or(1))

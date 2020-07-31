@@ -22,7 +22,7 @@ pub fn find_first_plan<S,G,O,M,C>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, v
     p.verb(0,format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks));
     let mut choices = VecDeque::new();
     while !p.is_complete() {
-        for option in p.get_next_step(goal) {
+        for option in p.get_next_step(goal).0 {
             choices.push_back(option);
         }
         match choices.pop_back() {
@@ -115,6 +115,11 @@ enum Backtrack {
     Yes, No
 }
 
+#[derive(Copy,Clone,Eq,PartialEq,Debug)]
+enum SearchStatus {
+    Failure, Cycle, Ongoing, Completed
+}
+
 impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, C:Cost,
           G:Goal<S=S,M=M,O=O,C=C>,
@@ -186,20 +191,22 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
     }
 
     fn add_choices(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> Backtrack {
-        if self.current_step.is_complete() {
-            self.add_plan(goal);
-            Backtrack::Yes
-        } else {
-            let options = self.current_step.get_next_step(goal);
-            //if options.is_empty() {
-            //    Backtrack::Yes
-            //} else {
+        use SearchStatus::*;
+        let (options, status) = self.current_step.get_next_step(goal);
+        match status {
+            Completed => {
+                self.add_plan(goal);
+                Backtrack::Yes
+            },
+            Cycle => Backtrack::No,
+            Failure => Backtrack::Yes,
+            Ongoing => {
                 for option in options {
                     choices.insert(option);
                     self.total_pushes += 1;
                 }
                 Backtrack::No
-            //}
+            }
         }
     }
 
@@ -371,11 +378,11 @@ impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
         self.tasks.len() == 0
     }
 
-    pub fn get_next_step(&self, goal: &G) -> Vec<Self> {
+    pub fn get_next_step(&self, goal: &G) -> (Vec<Self>,SearchStatus) {
         self.verb(2,format!("depth {} tasks {:?}", self.depth, self.tasks));
         if self.is_complete() {
             self.verb(3,format!("depth {} returns plan {:?}", self.depth, self.plan));
-            vec![self.clone()]
+            (vec![self.clone()],SearchStatus::Completed)
         } else {
             if let Some(task1) = self.tasks.get(0) {
                 match task1 {
@@ -384,28 +391,31 @@ impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
                 }
             } else {
                 self.verb(3,format!("Depth {} returns failure", self.depth));
-                vec![]
+                (vec![],SearchStatus::Failure)
             }
         }
     }
 
-    fn apply_operator(&self, operator: O, goal: &G) -> Vec<Self> {
+    fn apply_operator(&self, operator: O, goal: &G) -> (Vec<Self>,SearchStatus) {
         if let Some(new_state) = operator.apply(&self.state) {
             if self.prev_states.contains(&new_state) {
                 self.verb(3,format!("Cycle after applying operator {:?}; pruning...", operator));
+                (vec![], SearchStatus::Cycle)
             } else {
                 self.verb(3,format!("Depth {}; new_state: {:?}", self.depth, new_state));
-                return vec![self.operator_planner_step(new_state, operator, goal)];
+                (vec![self.operator_planner_step(new_state, operator, goal)], SearchStatus::Ongoing)
             }
+        } else {
+            (vec![], SearchStatus::Failure)
         }
-        vec![]
     }
 
-    fn apply_method(&self, candidate: M, goal: &G) -> Vec<Self> {
+    fn apply_method(&self, candidate: M, goal: &G) -> (Vec<Self>,SearchStatus) {
         let mut planner_steps = Vec::new();
         match candidate.apply(&self.state, goal) {
             MethodResult::Failure => {
                 self.verb(3,format!("No plan found by method {:?}", candidate));
+                (planner_steps, SearchStatus::Failure)
             },
             MethodResult::TaskLists(subtask_alternatives) => {
                 let num_alternatives = subtask_alternatives.len();
@@ -419,9 +429,9 @@ impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
                     self.verb(3, format!("Plan found"));
                     planner_steps.push(self.method_planner_step(&vec![]));
                 }
+                (planner_steps, SearchStatus::Ongoing)
             }
         }
-        planner_steps
     }
 
     fn operator_planner_step(&self, state: S, operator: O, goal: &G) -> Self {

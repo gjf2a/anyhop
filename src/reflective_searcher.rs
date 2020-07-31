@@ -2,24 +2,22 @@
 //
 // This data structure supports the algorithm in my research notebook.
 
-use std::collections::BTreeMap;
-use crate::Cost;
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Debug,Clone)]
-pub struct TwoStageQueue<C:Cost,T> {
+pub struct TwoStageQueue<C:Ord,T> {
     backtrack_stack: Vec<T>,
-    prioritized: BTreeMap<C,Vec<T>>
+    fifo: VecDeque<T>,
+    prioritized: BTreeMap<C,Vec<T>>,
+    size: usize
 }
 
-impl <C:Cost,T> TwoStageQueue<C,T> {
+impl <C:Ord,T> TwoStageQueue<C,T> {
     pub fn new() -> Self {
-        TwoStageQueue {backtrack_stack: Vec::new(), prioritized: BTreeMap::new()}
+        TwoStageQueue {backtrack_stack: Vec::new(), fifo: VecDeque::new(), prioritized: BTreeMap::new(), size: 0}
     }
 
-    pub fn len(&self) -> usize {
-        let num_in_heap: usize = self.prioritized.iter().map(|(_,v)| v.len()).sum();
-        self.backtrack_stack.len() + num_in_heap
-    }
+    pub fn len(&self) -> usize { self.size }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -27,23 +25,32 @@ impl <C:Cost,T> TwoStageQueue<C,T> {
 
     pub fn insert(&mut self, obj: T) {
         self.backtrack_stack.push(obj);
+        self.size += 1;
     }
 
     pub fn remove(&mut self) -> Option<T> {
-        if self.backtrack_stack.is_empty() {
-            match self.prioritized.first_entry() {
-                None => None,
-                Some(mut entry) => {
-                    let result = entry.get_mut().pop().unwrap();
-                    if entry.get().is_empty() {
-                        entry.remove_entry();
+        let result = if self.backtrack_stack.is_empty() {
+            if self.fifo.is_empty() {
+                match self.prioritized.first_entry() {
+                    None => None,
+                    Some(mut entry) => {
+                        let result = entry.get_mut().pop().unwrap();
+                        if entry.get().is_empty() {
+                            entry.remove_entry();
+                        }
+                        Some(result)
                     }
-                    Some(result)
                 }
+            } else {
+                self.fifo.pop_front()
             }
         } else {
             self.backtrack_stack.pop()
+        };
+        if let Some(_) = result {
+            self.size -= 1;
         }
+        result
     }
 
     pub fn to_heap(&mut self, cost: C) {
@@ -53,23 +60,9 @@ impl <C:Cost,T> TwoStageQueue<C,T> {
         }
     }
 
-    pub fn to_heap_bfs(&mut self) {
-        use num_traits::identities::{zero, one};
-        let mut priority = self.prioritized.last_key_value()
-            .map(|pair| *(pair.0))
-            .unwrap_or(zero());
-
-        let mut items: Vec<T> = self.backtrack_stack.drain(..).collect();
-        items.drain(..).for_each(|item| {
-            priority = priority + one();
-            self.add_to_heap(item, priority)});
-    }
-
-    fn add_to_heap(&mut self, item: T, cost: C) {
-        match self.prioritized.get_mut(&cost) {
-            None => {self.prioritized.insert(cost, vec![item]);},
-            Some(v) => v.push(item)
-        }
+    pub fn to_bfs(&mut self) {
+        let mut drained: Vec<T> = self.backtrack_stack.drain(..).collect();
+        drained.drain(..).for_each(|item| self.fifo.push_back(item));
     }
 }
 
@@ -131,7 +124,7 @@ mod tests {
         m.insert(2);
         m.insert(3);
 
-        m.to_heap_bfs();
+        m.to_bfs();
 
         assert_eq!(m.remove().unwrap(), 1);
         assert_eq!(m.remove().unwrap(), 2);

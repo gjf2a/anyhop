@@ -140,14 +140,13 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
 
     fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, apply_cutoff: bool) {
         let mut choices = TwoStageQueue::new();
-        let mut backtrack;
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
         self.current_step.verb(1, format!("Backtrack strategy: {:?}", strategy));
         self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
-            backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {
+            let backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {
                 let time = self.time_since_start();
                 self.total_pruned += 1;
                 self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
@@ -193,7 +192,6 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         if self.current_step.is_complete() {
             let plan = self.current_step.plan.clone();
             let cost: C = cost_func(&plan);
-            self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
             self.add_plan(self.current_step.plan.clone(), goal, cost);
             true
         } else {
@@ -212,6 +210,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         self.discovery_prunes.push(self.total_pruned);
         self.discovery_prior_plans.push(self.plans.len());
         if goal.accepts(&self.current_step.state) {
+            self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
             self.plans.push(plan);
             self.current_step.verb(0, format!("Plan found. Cost: {:?}; Time: {}", cost, time));
         } else {
@@ -224,7 +223,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         if backtrack {
             match strategy {
                 BacktrackPreference::MostRecent => {},
-                BacktrackPreference::LeastRecent => choices.to_heap_bfs(),
+                BacktrackPreference::LeastRecent => choices.to_bfs(),
                 BacktrackPreference::Reflective => {unimplemented!();}
             }
         }

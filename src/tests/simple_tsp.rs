@@ -28,6 +28,16 @@ impl TSPMove {
 
 impl Operator for TSPMove {
     type S = TSPState;
+    type C = u64;
+    type G = TSPGoal;
+
+    fn cost(&self, state: &Self::S, goal: &Self::G) -> Self::C {
+        state.path.last().map_or(0, |start| goal.map.get(*start, self.end).unwrap())
+    }
+
+    fn zero_cost() -> Self::C {
+        0
+    }
 
     fn attempt_update(&self, state: &mut Self::S) -> bool {
         if state.path.contains(&self.end) || self.end >= state.num_cities {
@@ -58,6 +68,7 @@ impl Goal for TSPGoal {
     type O = TSPMove;
     type M = TSPMethod;
     type S = TSPState;
+    type C = u64;
 
     fn starting_tasks(&self) -> Vec<Task<Self::O, Self::M>> {
         vec![Task::Method(TSPMethod {})]
@@ -65,6 +76,10 @@ impl Goal for TSPGoal {
 
     fn accepts(&self, state: &Self::S) -> bool {
         self.map.all_locations().iter().all(|loc| state.path.contains(loc))
+    }
+
+    fn distance_from(&self, state: &Self::S) -> Self::C {
+        (self.map.len() - state.path.len()) as u64
     }
 }
 

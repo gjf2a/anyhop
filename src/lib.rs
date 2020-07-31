@@ -14,9 +14,10 @@ use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
 use reflective_searcher::TwoStageQueue;
+use std::ops::Add;
 
-pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Goal<S=S,M=M,O=O>, O:Operator<S=S>, M:Method<S=S,G=G,O=O> {
+pub fn find_first_plan<S,G,O,M,C>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
+    where S:Orderable, G:Goal<S=S,M=M,O=O,C=C>, O:Operator<S=S,C=C,G=G>, M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(0,format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks));
     let mut choices = VecDeque::new();
@@ -37,23 +38,21 @@ pub fn find_first_plan<S,G,O,M>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, ver
 
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
 pub enum BacktrackPreference {
-    MostRecent, LeastRecent, Reflective
+    MostRecent, LeastRecent, Heuristic
 }
 
-pub struct AnytimePlannerBuilder<'a,S,G,F>
-    where S:Orderable, G:Goal, F: ?Sized {
+pub struct AnytimePlannerBuilder<S,G> where S:Orderable, G:Goal {
     state: S, goal: G, time_limit_ms: Option<u128>, strategy: BacktrackPreference,
-    cost_func: &'a F, verbose: usize, apply_cutoff: bool
+    verbose: usize, apply_cutoff: bool
 }
 
-impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
-    where S:Orderable, O:Operator<S=S>,
-          G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
-          C:Cost, F:?Sized + Fn(&Vec<O>) -> C {
+impl <'a,S,G,O,M,C> AnytimePlannerBuilder<S,G>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
+          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
 
-    pub fn state_goal_cost(state: &S, goal: &G, cost_func: &'a F) -> Self {
+    pub fn state_goal(state: &S, goal: &G) -> Self {
         AnytimePlannerBuilder { state: state.clone(), goal: goal.clone(), time_limit_ms: None,
-            strategy: BacktrackPreference::MostRecent, cost_func, verbose: 0, apply_cutoff: true
+            strategy: BacktrackPreference::MostRecent, verbose: 0, apply_cutoff: true
         }
     }
 
@@ -82,22 +81,13 @@ impl <'a,S,G,O,M,C,F> AnytimePlannerBuilder<'a,S,G,F>
         self
     }
 
-    pub fn construct(&self) -> AnytimePlanner<S,O,M,C> {
-        AnytimePlanner::plan(&self.state, &self.goal, self.time_limit_ms, self.strategy, &self.cost_func, self.verbose, self.apply_cutoff)
+    pub fn construct(&self) -> AnytimePlanner<S,O,M,C,G> {
+        AnytimePlanner::plan(&self.state, &self.goal, self.time_limit_ms, self.strategy, self.verbose, self.apply_cutoff)
     }
 }
 
-impl <'a,S,G,O,M> AnytimePlannerBuilder<'a,S,G,dyn Fn(&Vec<O>) -> usize>
-    where S:Orderable, O:Operator<S=S>,
-          G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
-
-    pub fn state_goal(state: &S, goal: &G) -> Self {
-        AnytimePlannerBuilder::state_goal_cost(state, goal, &|v| v.len())
-    }
-}
-
-pub struct AnytimePlanner<S,O,M,C>
-    where S:Orderable, O:Operator, M:Method, C:Cost {
+pub struct AnytimePlanner<S,O,M,C,G>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost+Add<Output=C>, G:Goal<S=S,M=M,O=O,C=C> {
     plans: Vec<Vec<O>>,
     flawed_plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
@@ -111,7 +101,7 @@ pub struct AnytimePlanner<S,O,M,C>
     total_pruned: usize,
     start_time: Instant,
     total_time: Option<u128>,
-    current_step: PlannerStep<S,O,M>,
+    current_step: PlannerStep<S,O,M,C,G>,
     strategy: BacktrackPreference,
     apply_cutoff: bool
 }
@@ -120,12 +110,11 @@ pub fn summary_csv_header() -> String {
     format!("label,first,most_expensive,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
 }
 
-impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
-    where S:Orderable, O:Operator<S=S>,
-          C:Cost,
-          G:Goal<S=S,M=M,O=O>,
+impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, C:Cost+Add<Output=C>,
+          G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O> {
-    fn plan<F:Fn(&Vec<O>) -> C>(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, verbose: usize, apply_cutoff: bool) -> Self {
+    fn plan(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, verbose: usize, apply_cutoff: bool) -> Self {
         let mut outcome = AnytimePlanner {
             plans: Vec::new(), discovery_times: Vec::new(), cheapest: None, costs: Vec::new(),
             discovery_prior_plans: Vec::new(), discovery_prunes: Vec::new(), total_iterations: 0,
@@ -133,11 +122,11 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
             total_time: None, strategy, apply_cutoff, flawed_plans: Vec::new(),
             current_step: PlannerStep::new(state, &goal.starting_tasks(), verbose)
         };
-        outcome.make_plan(goal, time_limit_ms, strategy, cost_func, apply_cutoff);
+        outcome.make_plan(goal, time_limit_ms, strategy, apply_cutoff);
         outcome
     }
 
-    fn make_plan<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, cost_func: &F, apply_cutoff: bool) {
+    fn make_plan(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, apply_cutoff: bool) {
         let mut choices = TwoStageQueue::new();
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
@@ -145,13 +134,13 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
-            let backtrack = if apply_cutoff && self.current_too_expensive(cost_func) {
+            let backtrack = if apply_cutoff && self.current_too_expensive() {
                 let time = self.time_since_start();
                 self.total_pruned += 1;
                 self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
                 true
             } else {
-                self.add_choices(goal, &mut choices, cost_func)
+                self.add_choices(goal, &mut choices)
             };
             if choices.is_empty() {
                 self.set_total_time();
@@ -176,8 +165,8 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         self.total_time = Some(self.time_since_start());
     }
 
-    fn current_too_expensive<F:Fn(&Vec<O>) -> C>(&self, cost_func: F) -> bool {
-        self.cheapest.map_or(false, |bound| cost_func(&self.current_step.plan) >= bound)
+    fn current_too_expensive(&self) -> bool {
+        self.cheapest.map_or(false, |bound| self.current_step.cost >= bound)
     }
 
     fn time_up(&self, time_limit_ms: Option<u128>) -> bool {
@@ -187,11 +176,9 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn add_choices<F:Fn(&Vec<O>) -> C>(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M>>, cost_func: &F) -> bool {
+    fn add_choices(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> bool {
         if self.current_step.is_complete() {
-            let plan = self.current_step.plan.clone();
-            let cost: C = cost_func(&plan);
-            self.add_plan(self.current_step.plan.clone(), goal, cost);
+            self.add_plan(self.current_step.plan.clone(), goal, self.current_step.cost);
             true
         } else {
             for option in self.current_step.get_next_step(goal) {
@@ -218,12 +205,12 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M>>) {
+    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
         if backtrack {
             match strategy {
                 BacktrackPreference::MostRecent => {},
                 BacktrackPreference::LeastRecent => choices.to_bfs(),
-                BacktrackPreference::Reflective => {unimplemented!();}
+                BacktrackPreference::Heuristic => {unimplemented!();}
             }
         }
         self.current_step = choices.remove().unwrap();
@@ -292,6 +279,8 @@ pub trait Cost = Ord + PartialOrd + Copy + Debug;
 
 pub trait Operator : Atom {
     type S:Clone;
+    type C:Cost+Add<Output=Self::C>;
+    type G:Goal<O=Self,S=Self::S,C=Self::C>;
 
     fn apply(&self, state: &Self::S) -> Option<Self::S> {
         let mut updated = state.clone();
@@ -299,6 +288,8 @@ pub trait Operator : Atom {
         if success {Some(updated)} else {None}
     }
 
+    fn cost(&self, state: &Self::S, goal: &Self::G) -> Self::C;
+    fn zero_cost() -> Self::C;
     fn attempt_update(&self, state: &mut Self::S) -> bool;
 }
 
@@ -315,12 +306,14 @@ pub trait Method : Atom {
 }
 
 pub trait Goal : Clone + Debug {
-    type O: Operator<S=Self::S>;
+    type O: Operator<S=Self::S,C=Self::C,G=Self>;
     type M: Atom;
     type S: Clone;
+    type C: Cost+Add<Output=Self::C>;
 
     fn starting_tasks(&self) -> Vec<Task<Self::O,Self::M>>;
     fn accepts(&self, state: &Self::S) -> bool;
+    fn distance_from(&self, state: &Self::S) -> Self::C;
 
     fn plan_valid(&self, start: &Self::S, plan: &Vec<Self::O>) -> bool {
         let mut state = start.clone();
@@ -340,21 +333,22 @@ pub enum Task<O:Atom, T:Atom> {
 }
 
 #[derive(Clone)]
-struct PlannerStep<S,O,M>
-where S:Orderable, O:Operator, M:Method {
+struct PlannerStep<S,O,M,C,G>
+where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost+Add<Output=C>, G:Goal<S=S,M=M,O=O,C=C>, {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
     tasks: Vec<Task<O,M>>,
     plan: Vec<O>,
+    cost: C,
     depth: usize
 }
 
-impl <S,O,G,M> PlannerStep<S,O,M>
-    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
+impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>, M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
 
     pub fn new(state: &S, tasks: &Vec<Task<O,M>>, verbose: usize) -> Self {
-        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0}
+        PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, cost: O::zero_cost()}
     }
 
     pub fn is_complete(&self) -> bool {
@@ -369,7 +363,7 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         } else {
             if let Some(task1) = self.tasks.get(0) {
                 match task1 {
-                    Task::Operator(op) => self.apply_operator(*op),
+                    Task::Operator(op) => self.apply_operator(*op, goal),
                     Task::Method(tag) => self.apply_method(*tag, goal)
                 }
             } else {
@@ -379,13 +373,13 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         }
     }
 
-    fn apply_operator(&self, operator: O) -> Vec<Self> {
+    fn apply_operator(&self, operator: O, goal: &G) -> Vec<Self> {
         if let Some(new_state) = operator.apply(&self.state) {
             if self.prev_states.contains(&new_state) {
                 self.verb(3,format!("Cycle after applying operator {:?}; pruning...", operator));
             } else {
                 self.verb(3,format!("Depth {}; new_state: {:?}", self.depth, new_state));
-                return vec![self.operator_planner_step(new_state, operator)];
+                return vec![self.operator_planner_step(new_state, operator, goal)];
             }
         }
         vec![]
@@ -414,17 +408,17 @@ impl <S,O,G,M> PlannerStep<S,O,M>
         planner_steps
     }
 
-    fn operator_planner_step(&self, state: S, operator: O) -> Self {
+    fn operator_planner_step(&self, state: S, operator: O, goal: &G) -> Self {
         let mut updated_plan = self.plan.clone();
         updated_plan.push(operator);
-        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1 }
+        PlannerStep { verbose: self.verbose, prev_states: self.prev_states.insert(state.clone()), state: state, tasks: self.tasks[1..].to_vec(), plan: updated_plan, depth: self.depth + 1, cost: self.cost + operator.cost(&self.state, goal) }
     }
 
     fn method_planner_step(&self, subtasks: &Vec<Task<O,M>>) -> Self {
         let mut updated_tasks = Vec::new();
         subtasks.iter().for_each(|t| updated_tasks.push(*t));
         self.tasks.iter().skip(1).for_each(|t| updated_tasks.push(*t));
-        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1}
+        PlannerStep {verbose: self.verbose, prev_states: self.prev_states.clone(), state: self.state.clone(), tasks: updated_tasks, plan: self.plan.clone(), depth: self.depth + 1, cost: self.cost}
     }
 
     fn verb(&self, level: usize, text: String) {
@@ -523,9 +517,9 @@ mod tests {
 
 // Experiment harness functions
 
-pub fn process_expr_cmd_line<S,O,G,M,P>(parser: &P, args: &CmdArgs) -> io::Result<()>
-    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>,
-          P: Fn(&str) -> io::Result<(S, G)> {
+pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Result<()>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>, M:Method<S=S,G=G,O=O>,
+          P: Fn(&str) -> io::Result<(S, G)>, C:Cost+Add<Output=C> {
 
     let mut results = summary_csv_header();
     let (limit_ms, verbosity) = find_time_limit_and_verbosity(args);
@@ -636,14 +630,17 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
     (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"))
 }
 
-pub struct FileAssessor<S,O,G,M> where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O>{
+pub struct FileAssessor<S,O,G,M,C>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
+          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C>{
     file: String,
     results: String,
-    outcome: AnytimePlanner<S,O,M,usize>
+    outcome: AnytimePlanner<S,O,M,C,G>
 }
 
-impl <S,O,G,M> FileAssessor<S,O,G,M>
-    where S:Orderable, O:Operator<S=S>, G:Goal<S=S,M=M,O=O>, M:Method<S=S,G=G,O=O> {
+impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
+          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));

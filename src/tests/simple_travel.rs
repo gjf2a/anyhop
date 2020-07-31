@@ -14,6 +14,16 @@ pub enum CityOperator<T:Atom,L:Atom> {
 
 impl <T:Atom,L:Atom> Operator for CityOperator<T,L> {
     type S = TravelState<T,L>;
+    type C = usize;
+    type G = TravelGoal<T,L>;
+
+    fn cost(&self, _: &Self::S, _: &Self::G) -> Self::C {
+        1
+    }
+
+    fn zero_cost() -> Self::C {
+        0
+    }
 
     fn attempt_update(&self, updated: &mut TravelState<T, L>) -> bool {
         use CityOperator::*;
@@ -145,6 +155,7 @@ impl <T:Atom,L:Atom> Goal for TravelGoal<T,L> {
     type O = CityOperator<T,L>;
     type M = CityMethod<T,L>;
     type S = TravelState<T,L>;
+    type C = usize;
 
     fn starting_tasks(&self) -> Vec<Task<CityOperator<T, L>, CityMethod<T,L>>> {
         self.goals.iter()
@@ -154,6 +165,10 @@ impl <T:Atom,L:Atom> Goal for TravelGoal<T,L> {
 
     fn accepts(&self, state: &Self::S) -> bool {
         self.goals.iter().all(|(traveler, goal)| state.at(*traveler, *goal))
+    }
+
+    fn distance_from(&self, state: &Self::S) -> usize {
+        self.goals.iter().filter(|(t, l)| &state.loc.get(t).unwrap() != l).count()
     }
 }
 

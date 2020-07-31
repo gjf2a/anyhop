@@ -150,7 +150,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
                 self.current_step.verb(0,format!("Time's up! {:?} ms elapsed", time_limit_ms));
                 break;
             } else {
-                self.pick_choice(backtrack, strategy, &mut choices);
+                self.pick_choice(backtrack, strategy, goal, &mut choices);
             }
         }
     }
@@ -221,12 +221,12 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: Backtrack, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
+    fn pick_choice(&mut self, backtrack: Backtrack, strategy: BacktrackPreference, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
         if backtrack == Backtrack::Yes {
             match strategy {
                 BacktrackPreference::MostRecent => {},
                 BacktrackPreference::LeastRecent => choices.to_bfs(),
-                BacktrackPreference::Heuristic => choices.to_heap(|step| step.cost)
+                BacktrackPreference::Heuristic => choices.to_heap(|step| step.cost + goal.distance_from(&step.state))
             }
         }
         self.current_step = choices.remove().unwrap();

@@ -10,7 +10,6 @@ use immutable_map::TreeSet;
 use std::fmt::Debug;
 use std::collections::{VecDeque, BTreeMap};
 use std::time::Instant;
-use num_traits::Num;
 use std::{io, fs, env};
 use std::fs::File;
 use std::io::Write;
@@ -289,7 +288,7 @@ pub trait Orderable = Clone + Debug + Ord + Eq;
 
 pub trait Atom = Copy + Clone + Debug + Ord + Eq;
 
-pub trait Cost = Num + Ord + PartialOrd + Copy + Debug;
+pub trait Cost = Ord + PartialOrd + Copy + Debug;
 
 pub trait Operator : Atom {
     type S:Clone;

@@ -17,7 +17,7 @@ use reflective_searcher::TwoStageQueue;
 use std::ops::Add;
 
 pub fn find_first_plan<S,G,O,M,C>(state: &S, goal: &G, tasks: &Vec<Task<O,M>>, verbose: usize) -> Option<Vec<O>>
-    where S:Orderable, G:Goal<S=S,M=M,O=O,C=C>, O:Operator<S=S,C=C,G=G>, M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
+    where S:Orderable, G:Goal<S=S,M=M,O=O,C=C>, O:Operator<S=S,C=C,G=G>, M:Method<S=S,G=G,O=O>, C:Cost {
     let mut p = PlannerStep::new(state, tasks, verbose);
     p.verb(0,format!("** anyhop, verbose={}: **\n   state = {:?}\n   tasks = {:?}", verbose, state, tasks));
     let mut choices = VecDeque::new();
@@ -48,7 +48,7 @@ pub struct AnytimePlannerBuilder<S,G> where S:Orderable, G:Goal {
 
 impl <'a,S,G,O,M,C> AnytimePlannerBuilder<S,G>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
-          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
+          M:Method<S=S,G=G,O=O>, C:Cost {
 
     pub fn state_goal(state: &S, goal: &G) -> Self {
         AnytimePlannerBuilder { state: state.clone(), goal: goal.clone(), time_limit_ms: None,
@@ -87,7 +87,7 @@ impl <'a,S,G,O,M,C> AnytimePlannerBuilder<S,G>
 }
 
 pub struct AnytimePlanner<S,O,M,C,G>
-    where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost+Add<Output=C>, G:Goal<S=S,M=M,O=O,C=C> {
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost, G:Goal<S=S,M=M,O=O,C=C> {
     plans: Vec<Vec<O>>,
     flawed_plans: Vec<Vec<O>>,
     discovery_times: Vec<u128>,
@@ -111,7 +111,7 @@ pub fn summary_csv_header() -> String {
 }
 
 impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
-    where S:Orderable, O:Operator<S=S,C=C,G=G>, C:Cost+Add<Output=C>,
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, C:Cost,
           G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O> {
     fn plan(state: &S, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, verbose: usize, apply_cutoff: bool) -> Self {
@@ -275,11 +275,11 @@ pub trait Orderable = Clone + Debug + Ord + Eq;
 
 pub trait Atom = Copy + Clone + Debug + Ord + Eq;
 
-pub trait Cost = Ord + PartialOrd + Copy + Debug;
+pub trait Cost = Ord + PartialOrd + Copy + Debug + Add<Output=Self>;
 
 pub trait Operator : Atom {
     type S:Clone;
-    type C:Cost+Add<Output=Self::C>;
+    type C:Cost;
     type G:Goal<O=Self,S=Self::S,C=Self::C>;
 
     fn apply(&self, state: &Self::S) -> Option<Self::S> {
@@ -309,7 +309,7 @@ pub trait Goal : Clone + Debug {
     type O: Operator<S=Self::S,C=Self::C,G=Self>;
     type M: Atom;
     type S: Clone;
-    type C: Cost+Add<Output=Self::C>;
+    type C: Cost;
 
     fn starting_tasks(&self) -> Vec<Task<Self::O,Self::M>>;
     fn accepts(&self, state: &Self::S) -> bool;
@@ -334,7 +334,7 @@ pub enum Task<O:Atom, T:Atom> {
 
 #[derive(Clone)]
 struct PlannerStep<S,O,M,C,G>
-where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost+Add<Output=C>, G:Goal<S=S,M=M,O=O,C=C>, {
+where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost, G:Goal<S=S,M=M,O=O,C=C>, {
     verbose: usize,
     state: S,
     prev_states: TreeSet<S>,
@@ -345,7 +345,7 @@ where S:Orderable, O:Operator<S=S,C=C,G=G>, M:Method, C:Cost+Add<Output=C>, G:Go
 }
 
 impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
-    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>, M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
+    where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>, M:Method<S=S,G=G,O=O>, C:Cost {
 
     pub fn new(state: &S, tasks: &Vec<Task<O,M>>, verbose: usize) -> Self {
         PlannerStep {verbose, state: state.clone(), prev_states: TreeSet::new().insert(state.clone()), tasks: tasks.clone(), plan: vec![], depth: 0, cost: O::zero_cost()}
@@ -519,7 +519,7 @@ mod tests {
 
 pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Result<()>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>, M:Method<S=S,G=G,O=O>,
-          P: Fn(&str) -> io::Result<(S, G)>, C:Cost+Add<Output=C> {
+          P: Fn(&str) -> io::Result<(S, G)>, C:Cost {
 
     let mut results = summary_csv_header();
     let (limit_ms, verbosity) = find_time_limit_and_verbosity(args);
@@ -632,7 +632,7 @@ fn find_time_limit_and_verbosity(args: &CmdArgs) -> (Option<u128>,Option<usize>)
 
 pub struct FileAssessor<S,O,G,M,C>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
-          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C>{
+          M:Method<S=S,G=G,O=O>, C:Cost{
     file: String,
     results: String,
     outcome: AnytimePlanner<S,O,M,C,G>
@@ -640,7 +640,7 @@ pub struct FileAssessor<S,O,G,M,C>
 
 impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
-          M:Method<S=S,G=G,O=O>, C:Cost+Add<Output=C> {
+          M:Method<S=S,G=G,O=O>, C:Cost {
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
         use crate::BacktrackPreference::{LeastRecent, MostRecent};
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
@@ -649,19 +649,17 @@ impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
         debug!("Start state: {:?}", start);
         debug!("Goal: {:?}", goal);
         for strategy in vec![LeastRecent, MostRecent] {
-            for apply_cutoff in vec![true, false] {
-                let mut assessor = FileAssessor {
-                    file: String::from(file), results: String::new(),
-                    outcome: AnytimePlannerBuilder::state_goal(&start, &goal)
-                        .apply_cutoff(apply_cutoff)
-                        .strategy(strategy)
-                        .possible_time_limit_ms(limit_ms)
-                        .verbose(verbosity.unwrap_or(1))
-                        .construct()
-                };
-                assessor.report()?;
-                results.push_str(assessor.results.as_str());
-            }
+            let mut assessor = FileAssessor {
+                file: String::from(file), results: String::new(),
+                outcome: AnytimePlannerBuilder::state_goal(&start, &goal)
+                    .apply_cutoff(true)
+                    .strategy(strategy)
+                    .possible_time_limit_ms(limit_ms)
+                    .verbose(verbosity.unwrap_or(1))
+                    .construct()
+            };
+            assessor.report()?;
+            results.push_str(assessor.results.as_str());
         }
         Ok(())
     }

@@ -53,10 +53,15 @@ impl <C:Ord,T> TwoStageQueue<C,T> {
         result
     }
 
-    pub fn to_heap(&mut self, cost: C) {
+    pub fn to_heap<F:Fn(&T)->C>(&mut self, cost_func: F) {
+        let mut drained: Vec<T> = self.backtrack_stack.drain(..).collect();
+        drained.drain(..).for_each(|item| {let cost = cost_func(&item); self.add_to_heap(item, cost);});
+    }
+
+    fn add_to_heap(&mut self, item: T, cost: C) {
         match self.prioritized.get_mut(&cost) {
-            None => {self.prioritized.insert(cost, self.backtrack_stack.drain(..).collect());},
-            Some(v) => self.backtrack_stack.drain(..).for_each(|t| v.push(t))
+            None => {self.prioritized.insert(cost, vec![item]);},
+            Some(v) => v.push(item)
         }
     }
 
@@ -80,7 +85,7 @@ mod tests {
         let three = m.remove().unwrap();
         assert_eq!(three, 3);
         assert_eq!(m.len(), 2);
-        m.to_heap(0);
+        m.to_heap(|_| 0);
         m.insert(30);
         m.insert(31);
         m.insert(32);
@@ -88,7 +93,7 @@ mod tests {
         let three_2 = m.remove().unwrap();
         assert_eq!(three_2, 32);
         assert_eq!(m.len(), 4);
-        m.to_heap(3);
+        m.to_heap(|_| 3);
         let two = m.remove().unwrap();
         assert_eq!(two, 2);
         assert_eq!(m.len(), 3);
@@ -99,7 +104,7 @@ mod tests {
         let two_2 = m.remove().unwrap();
         assert_eq!(m.len(), 5);
         assert_eq!(two_2, 22);
-        m.to_heap(2);
+        m.to_heap(|_| 2);
         let one = m.remove().unwrap();
         assert_eq!(one, 1);
         assert_eq!(m.len(), 4);
@@ -110,7 +115,7 @@ mod tests {
         let one_2 = m.remove().unwrap();
         assert_eq!(one_2, 12);
         assert_eq!(m.len(), 6);
-        m.to_heap(1);
+        m.to_heap(|_| 1);
 
         let new_best_option = m.remove().unwrap();
         assert_eq!(m.len(), 5);

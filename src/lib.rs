@@ -46,7 +46,7 @@ pub struct AnytimePlannerBuilder<S,G> where S:Orderable, G:Goal {
     verbose: usize, apply_cutoff: bool
 }
 
-impl <'a,S,G,O,M,C> AnytimePlannerBuilder<S,G>
+impl <S,G,O,M,C> AnytimePlannerBuilder<S,G>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O>, C:Cost {
 
@@ -56,27 +56,27 @@ impl <'a,S,G,O,M,C> AnytimePlannerBuilder<S,G>
         }
     }
 
-    pub fn verbose(&'a mut self, verbose: usize) -> &'a mut Self {
+    pub fn verbose(&mut self, verbose: usize) -> &mut Self {
         self.verbose = verbose;
         self
     }
 
-    pub fn time_limit_ms(&'a mut self, time_limit_ms: u128) -> &'a mut Self {
+    pub fn time_limit_ms(&mut self, time_limit_ms: u128) -> &mut Self {
         self.time_limit_ms = Some(time_limit_ms);
         self
     }
 
-    pub fn possible_time_limit_ms(&'a mut self, time_limit_ms: Option<u128>) -> &'a mut Self {
+    pub fn possible_time_limit_ms(&mut self, time_limit_ms: Option<u128>) -> &mut Self {
         self.time_limit_ms = time_limit_ms;
         self
     }
 
-    pub fn apply_cutoff(&'a mut self, apply_cutoff: bool) -> &'a mut Self {
+    pub fn apply_cutoff(&mut self, apply_cutoff: bool) -> &mut Self {
         self.apply_cutoff = apply_cutoff;
         self
     }
 
-    pub fn strategy(&'a mut self, strategy: BacktrackPreference) -> &'a mut Self {
+    pub fn strategy(&mut self, strategy: BacktrackPreference) -> &mut Self {
         self.strategy = strategy;
         self
     }
@@ -110,6 +110,11 @@ pub fn summary_csv_header() -> String {
     format!("label,first,most_expensive,cheapest,discovery_time,total_time,pruned_prior,num_prior_plans,total_prior_attempts,total_attempts\n")
 }
 
+#[derive(Copy,Clone,Eq,PartialEq,Debug)]
+enum Backtrack {
+    Yes, No
+}
+
 impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, C:Cost,
           G:Goal<S=S,M=M,O=O,C=C>,
@@ -129,19 +134,12 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
     fn make_plan(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, apply_cutoff: bool) {
         let mut choices = TwoStageQueue::new();
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
+        self.current_step.verb(0, format!("Backtrack strategy: {:?}", strategy));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
-        self.current_step.verb(1, format!("Backtrack strategy: {:?}", strategy));
         self.current_step.verb(3, format!("Initial state: {:?}", self.current_step.state));
         loop {
             self.total_iterations += 1;
-            let backtrack = if apply_cutoff && self.current_too_expensive() {
-                let time = self.time_since_start();
-                self.total_pruned += 1;
-                self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
-                true
-            } else {
-                self.add_choices(goal, &mut choices)
-            };
+            let backtrack = self.determine_choices(goal, apply_cutoff, &mut choices);
             if choices.is_empty() {
                 self.set_total_time();
                 self.current_step.verb(0,format!("** No plans left to be found ({} ms elapsed) **", self.total_time.unwrap()));
@@ -154,6 +152,17 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
             } else {
                 self.pick_choice(backtrack, strategy, &mut choices);
             }
+        }
+    }
+
+    fn determine_choices(&mut self, goal: &G, apply_cutoff: bool, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> Backtrack {
+        if apply_cutoff && self.current_too_expensive() {
+            let time = self.time_since_start();
+            self.total_pruned += 1;
+            self.current_step.verb(1,format!("Plan pruned. Time: {}", time));
+            Backtrack::Yes
+        } else {
+            self.add_choices(goal, choices)
         }
     }
 
@@ -176,25 +185,32 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn add_choices(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> bool {
+    fn add_choices(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> Backtrack {
         if self.current_step.is_complete() {
-            self.add_plan(self.current_step.plan.clone(), goal, self.current_step.cost);
-            true
+            self.add_plan(goal);
+            Backtrack::Yes
         } else {
-            for option in self.current_step.get_next_step(goal) {
-                choices.insert(option);
-                self.total_pushes += 1;
+            let options = self.current_step.get_next_step(goal);
+            if options.is_empty() {
+                Backtrack::Yes
+            } else {
+                for option in options {
+                    choices.insert(option);
+                    self.total_pushes += 1;
+                }
+                Backtrack::No
             }
-            false
         }
     }
 
-    fn add_plan(&mut self, plan: Vec<O>, goal: &G, cost: C) {
+    fn add_plan(&mut self, goal: &G) {
+        let cost = self.current_step.cost;
         self.costs.push(cost);
         let time = self.time_since_start();
         self.discovery_times.push(time);
         self.discovery_prunes.push(self.total_pruned);
         self.discovery_prior_plans.push(self.plans.len());
+        let plan = self.current_step.plan.clone();
         if goal.accepts(&self.current_step.state) {
             self.cheapest = Some(self.cheapest.map_or(cost,|c| if cost < c {cost} else {c}));
             self.plans.push(plan);
@@ -205,12 +221,12 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: bool, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
-        if backtrack {
+    fn pick_choice(&mut self, backtrack: Backtrack, strategy: BacktrackPreference, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
+        if backtrack == Backtrack::Yes {
             match strategy {
                 BacktrackPreference::MostRecent => {},
                 BacktrackPreference::LeastRecent => choices.to_bfs(),
-                BacktrackPreference::Heuristic => {unimplemented!();}
+                BacktrackPreference::Heuristic => choices.to_heap(|step| step.cost)
             }
         }
         self.current_step = choices.remove().unwrap();
@@ -642,13 +658,13 @@ impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O>, C:Cost {
     fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, parser: &P) -> io::Result<()> {
-        use crate::BacktrackPreference::{LeastRecent, MostRecent};
+        use crate::BacktrackPreference::{LeastRecent, MostRecent, Heuristic};
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
         let (start, goal) = parser(file)?;
         debug!("Start state: {:?}", start);
         debug!("Goal: {:?}", goal);
-        for strategy in vec![LeastRecent, MostRecent] {
+        for strategy in vec![LeastRecent, MostRecent, Heuristic] {
             let mut assessor = FileAssessor {
                 file: String::from(file), results: String::new(),
                 outcome: AnytimePlannerBuilder::state_goal(&start, &goal)

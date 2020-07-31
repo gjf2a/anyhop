@@ -191,15 +191,15 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
             Backtrack::Yes
         } else {
             let options = self.current_step.get_next_step(goal);
-            if options.is_empty() {
-                Backtrack::Yes
-            } else {
+            //if options.is_empty() {
+            //    Backtrack::Yes
+            //} else {
                 for option in options {
                     choices.insert(option);
                     self.total_pushes += 1;
                 }
                 Backtrack::No
-            }
+            //}
         }
     }
 

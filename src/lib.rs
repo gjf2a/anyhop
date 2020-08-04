@@ -548,9 +548,9 @@ pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Res
           P: Fn(&str) -> io::Result<(S, G)>, C:Cost {
 
     let mut results = summary_csv_header();
-    let (limit_ms, verbosity, apply_cutoff) = find_time_limit_verbosity_cutoff(args);
+    let (limit_ms, verbosity, apply_cutoff, strategies) = find_time_limit_verbosity_cutoff(args);
     for file in args.all_filenames().iter() {
-        FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, apply_cutoff, parser)?;
+        FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, apply_cutoff, &strategies, parser)?;
     }
     let mut output = File::create(make_result_filename(args))?;
     write!(output, "{}", results.as_str())?;
@@ -646,12 +646,15 @@ impl CmdArgs {
     }
 }
 
-fn find_time_limit_verbosity_cutoff(args: &CmdArgs) -> (Option<u128>,Option<usize>,bool) {
+fn find_time_limit_verbosity_cutoff(args: &CmdArgs) -> (Option<u128>,Option<usize>,bool,Vec<BacktrackPreference>) {
     if args.has_tag("h") || args.has_tag("help") {
         println!("Usage: planner [-h] [-c] [-(int)s] [[-(int)v] plan_files");
         println!("\t-h: This message");
         println!("\t-c: See command-line argument data structure");
         println!("\t-no_prune: No branch-and-bound cutoff");
+        println!("\t-dfs: Depth-first only");
+        println!("\t-bfs: Breadth-first only");
+        println!("\t-heu: Heuristic search only");
         println!("\t-(int)s: Time limit in seconds (e.g. -5s => 5 seconds)");
         println!("\t-(int)v: Verbosity (0-4)");
         println!("\t\t-0v: Reports final plan only");
@@ -669,7 +672,28 @@ fn find_time_limit_verbosity_cutoff(args: &CmdArgs) -> (Option<u128>,Option<usiz
         println!("CmdArgs: {:?}", args);
         println!("verbosity: {:?}; limit: {:?}", args.num_from::<usize>("v"), args.num_from::<usize>("s"));
     }
-    (args.num_from("s").map(|s: u128| s * 1000), args.num_from("v"), !args.has_tag("no_prune"))
+    (args.num_from("s").map(|s: u128| s * 1000),
+     args.num_from("v"),
+     !args.has_tag("no_prune"),
+     backtrack_prefs(&args))
+}
+
+fn backtrack_prefs(args: &CmdArgs) -> Vec<BacktrackPreference> {
+    let mut result = Vec::new();
+    if args.has_tag("dfs") {
+        result.push(BacktrackPreference::MostRecent);
+    }
+    if args.has_tag("bfs") {
+        result.push(BacktrackPreference::LeastRecent);
+    }
+    if args.has_tag("heu") {
+        result.push(BacktrackPreference::Heuristic);
+    }
+    if result.is_empty() {
+        vec![BacktrackPreference::MostRecent, BacktrackPreference::LeastRecent, BacktrackPreference::Heuristic]
+    } else {
+        result
+    }
 }
 
 pub struct FileAssessor<S,O,G,M,C>
@@ -683,19 +707,18 @@ pub struct FileAssessor<S,O,G,M,C>
 impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
     where S:Orderable, O:Operator<S=S,C=C,G=G>, G:Goal<S=S,M=M,O=O,C=C>,
           M:Method<S=S,G=G,O=O>, C:Cost {
-    fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, apply_cutoff: bool, parser: &P) -> io::Result<()> {
-        use crate::BacktrackPreference::{LeastRecent, MostRecent, Heuristic};
+    fn assess_file<P: Fn(&str) -> io::Result<(S,G)>>(file: &str, results: &mut String, limit_ms: Option<u128>, verbosity: Option<usize>, apply_cutoff: bool, strategies: &Vec<BacktrackPreference>, parser: &P) -> io::Result<()> {
         debug!("assess_file(\"{}\"): verbosity: {:?} ({:?})", file, verbosity, verbosity.unwrap_or(1));
         info!("Running {}", file);
         let (start, goal) = parser(file)?;
         debug!("Start state: {:?}", start);
         debug!("Goal: {:?}", goal);
-        for strategy in vec![LeastRecent, MostRecent, Heuristic] {
+        for strategy in strategies.iter() {
             let mut assessor = FileAssessor {
                 file: String::from(file), results: String::new(),
                 outcome: AnytimePlannerBuilder::state_goal(&start, &goal)
                     .apply_cutoff(apply_cutoff)
-                    .strategy(strategy)
+                    .strategy(*strategy)
                     .possible_time_limit_ms(limit_ms)
                     .verbose(verbosity.unwrap_or(1))
                     .construct()

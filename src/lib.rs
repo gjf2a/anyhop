@@ -552,9 +552,19 @@ pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Res
     for file in args.all_filenames().iter() {
         FileAssessor::assess_file(file.as_str(), &mut results, limit_ms, verbosity, apply_cutoff, parser)?;
     }
-    let mut output = File::create("results.csv")?;
+    let mut output = File::create(make_result_filename(args))?;
     write!(output, "{}", results.as_str())?;
     Ok(())
+}
+
+fn make_result_filename(args: &CmdArgs) -> String {
+    let mut result = String::from("results");
+    result.push_str(args.get_with_tag("s")
+        .map(|s| s.as_str())
+        .unwrap_or("_no_time_limit"));
+    args.all_filenames().iter().for_each(|s| {result.push('_'); result.push_str(s.as_str())});
+    result.push_str(".csv");
+    result
 }
 
 #[derive(Debug,Clone)]

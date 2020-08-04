@@ -563,6 +563,7 @@ fn make_result_filename(args: &CmdArgs) -> String {
         .map(|s| s.as_str())
         .unwrap_or("_no_time_limit"));
     args.all_filenames().iter().for_each(|s| {result.push('_'); result.push_str(s.as_str())});
+    result = result.replace('.', "_").replace('-', "_");
     result.push_str(".csv");
     result
 }

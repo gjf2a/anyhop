@@ -560,12 +560,16 @@ pub fn process_expr_cmd_line<S,O,G,M,P,C>(parser: &P, args: &CmdArgs) -> io::Res
 fn make_result_filename(args: &CmdArgs) -> String {
     let mut result = String::from("results");
     result.push_str(args.get_with_tag("s")
-        .map(|s| s.as_str())
-        .unwrap_or("_no_time_limit"));
-    args.all_filenames().iter().for_each(|s| {result.push('_'); result.push_str(s.as_str())});
+        .map_or("no_time_limit", |s| s.as_str()));
+    args.all_filenames().iter().for_each(|s| {result.push('_'); result.push_str(simplify_filename(s.as_str()).as_str())});
     result = result.replace('.', "_").replace('-', "_");
     result.push_str(".csv");
     result
+}
+
+fn simplify_filename(filename: &str) -> String {
+    std::path::Path::new(filename).file_name()
+        .map_or(String::from("_missing_name"), |s| String::from(s.to_str().unwrap()))
 }
 
 #[derive(Debug,Clone)]

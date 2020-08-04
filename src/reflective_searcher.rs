@@ -53,7 +53,6 @@ impl <C:Ord,T> TwoStageQueue<C,T> {
     }
 
     pub fn len(&self) -> usize {
-        assert_eq!(self.size, self.fifo.len() + self.prioritized.len() + self.backtrack_stack.len());
         self.size
     }
 

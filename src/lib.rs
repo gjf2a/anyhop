@@ -137,7 +137,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
     }
 
     fn make_plan(&mut self, goal: &G, time_limit_ms: Option<u128>, strategy: BacktrackPreference, apply_cutoff: bool) {
-        let mut choices = TwoStageQueue::new();
+        let mut choices = VecDeque::new();//TwoStageQueue::new();
         self.current_step.verb(0, format!("Verbosity level: {}", self.current_step.verbose));
         self.current_step.verb(0, format!("Backtrack strategy: {:?}", strategy));
         self.current_step.verb(1, format!("Branch and bound pruning? {}", apply_cutoff));
@@ -160,7 +160,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn determine_choices(&mut self, goal: &G, apply_cutoff: bool, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> Backtrack {
+    fn determine_choices(&mut self, goal: &G, apply_cutoff: bool, choices: &mut VecDeque<PlannerStep<S,O,M,C,G>>/* TwoStageQueue<C,PlannerStep<S,O,M,C,G>>*/) -> Backtrack {
         if apply_cutoff && self.current_too_expensive() {
             let time = self.time_since_start();
             self.total_pruned += 1;
@@ -190,7 +190,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn add_choices(&mut self, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) -> Backtrack {
+    fn add_choices(&mut self, goal: &G, choices: &mut VecDeque<PlannerStep<S,O,M,C,G>>/*TwoStageQueue<C,PlannerStep<S,O,M,C,G>>*/) -> Backtrack {
         use SearchStatus::*;
         let (options, status) = self.current_step.get_next_step(goal);
         match status {
@@ -202,7 +202,7 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
             Failure => Backtrack::Yes,
             Ongoing => {
                 for option in options {
-                    choices.insert(option);
+                    choices.push_back(option);//choices.insert(option);
                     self.total_pushes += 1;
                 }
                 Backtrack::No
@@ -228,15 +228,15 @@ impl <S,O,C,G,M> AnytimePlanner<S,O,M,C,G>
         }
     }
 
-    fn pick_choice(&mut self, backtrack: Backtrack, strategy: BacktrackPreference, goal: &G, choices: &mut TwoStageQueue<C,PlannerStep<S,O,M,C,G>>) {
-        if backtrack == Backtrack::Yes {
+    fn pick_choice(&mut self, backtrack: Backtrack, strategy: BacktrackPreference, goal: &G, choices: &mut VecDeque<PlannerStep<S,O,M,C,G>>/*TwoStageQueue<C,PlannerStep<S,O,M,C,G>>*/) {
+        /*if backtrack == Backtrack::Yes {
             match strategy {
                 BacktrackPreference::MostRecent => {},
                 BacktrackPreference::LeastRecent => choices.to_bfs(),
                 BacktrackPreference::Heuristic => choices.to_heap(|step| step.cost + goal.distance_from(&step.state))
             }
-        }
-        self.current_step = choices.remove().unwrap();
+        }*/
+        self.current_step = choices.pop_back().unwrap(); //choices.remove().unwrap();
         self.total_pops += 1;
     }
 

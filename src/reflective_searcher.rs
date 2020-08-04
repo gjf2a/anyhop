@@ -33,6 +33,10 @@ impl<C:Ord,T> MultiMap<C,T> {
             }
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.map.iter().map(|(k,v)| v.len()).sum()
+    }
 }
 
 #[derive(Debug,Clone)]
@@ -48,7 +52,10 @@ impl <C:Ord,T> TwoStageQueue<C,T> {
         TwoStageQueue {backtrack_stack: Vec::new(), fifo: VecDeque::new(), prioritized: MultiMap::new(), size: 0}
     }
 
-    pub fn len(&self) -> usize { self.size }
+    pub fn len(&self) -> usize {
+        assert_eq!(self.size, self.fifo.len() + self.prioritized.len() + self.backtrack_stack.len());
+        self.size
+    }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0

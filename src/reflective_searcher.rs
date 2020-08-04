@@ -4,17 +4,48 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+#[derive(Clone,Debug)]
+pub struct MultiMap<C:Ord,T> {
+    map: BTreeMap<C,Vec<T>>
+}
+
+impl<C:Ord,T> MultiMap<C,T> {
+    pub fn new() -> Self {
+        MultiMap {map: BTreeMap::new()}
+    }
+
+    pub fn insert(&mut self, item: T, cost: C) {
+        match self.map.get_mut(&cost) {
+            None => {self.map.insert(cost, vec![item]);},
+            Some(v) => v.push(item)
+        }
+    }
+
+    pub fn remove(&mut self) -> Option<T> {
+        match self.map.first_entry() {
+            None => None,
+            Some(mut entry) => {
+                let result = entry.get_mut().pop().unwrap();
+                if entry.get().is_empty() {
+                    entry.remove_entry();
+                }
+                Some(result)
+            }
+        }
+    }
+}
+
 #[derive(Debug,Clone)]
 pub struct TwoStageQueue<C:Ord,T> {
     backtrack_stack: Vec<T>,
     fifo: VecDeque<T>,
-    prioritized: BTreeMap<C,Vec<T>>,
+    prioritized: MultiMap<C,T>,
     size: usize
 }
 
 impl <C:Ord,T> TwoStageQueue<C,T> {
     pub fn new() -> Self {
-        TwoStageQueue {backtrack_stack: Vec::new(), fifo: VecDeque::new(), prioritized: BTreeMap::new(), size: 0}
+        TwoStageQueue {backtrack_stack: Vec::new(), fifo: VecDeque::new(), prioritized: MultiMap::new(), size: 0}
     }
 
     pub fn len(&self) -> usize { self.size }
@@ -31,16 +62,7 @@ impl <C:Ord,T> TwoStageQueue<C,T> {
     pub fn remove(&mut self) -> Option<T> {
         let result = if self.backtrack_stack.is_empty() {
             if self.fifo.is_empty() {
-                match self.prioritized.first_entry() {
-                    None => None,
-                    Some(mut entry) => {
-                        let result = entry.get_mut().pop().unwrap();
-                        if entry.get().is_empty() {
-                            entry.remove_entry();
-                        }
-                        Some(result)
-                    }
-                }
+                self.prioritized.remove()
             } else {
                 self.fifo.pop_front()
             }
@@ -55,14 +77,7 @@ impl <C:Ord,T> TwoStageQueue<C,T> {
 
     pub fn to_heap<F:Fn(&T)->C>(&mut self, cost_func: F) {
         let mut drained: Vec<T> = self.backtrack_stack.drain(..).collect();
-        drained.drain(..).for_each(|item| {let cost = cost_func(&item); self.add_to_heap(item, cost);});
-    }
-
-    fn add_to_heap(&mut self, item: T, cost: C) {
-        match self.prioritized.get_mut(&cost) {
-            None => {self.prioritized.insert(cost, vec![item]);},
-            Some(v) => v.push(item)
-        }
+        drained.drain(..).for_each(|item| {let cost = cost_func(&item); self.prioritized.insert(item, cost);});
     }
 
     pub fn to_bfs(&mut self) {

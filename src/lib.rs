@@ -415,6 +415,7 @@ impl <S,O,G,M,C> PlannerStep<S,O,M,C,G>
         match candidate.apply(&self.state, goal) {
             MethodResult::Failure => {
                 self.verb(3,format!("No plan found by method {:?}", candidate));
+                self.verb(3, format!("Incomplete and inadequate plan: {:?}", self.plan));
                 (planner_steps, SearchStatus::Failure)
             },
             MethodResult::TaskLists(subtask_alternatives) => {

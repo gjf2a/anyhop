@@ -749,7 +749,7 @@ impl <S,O,G,M,C> FileAssessor<S,O,G,M,C>
     }
 
     fn plan_report(&mut self, plan: &Vec<O>) -> io::Result<()> {
-        info!("Plan:");
+        info!("Plan (filename {:?}:", self.file);
         info!("{:?}", plan);
         let label = format!("o_{}_{:?}_{}", desuffix(self.file.as_str()), self.outcome.strategy, if self.outcome.apply_cutoff { "cutoff" } else { "no_cutoff" })
             .replace(")", "_")
